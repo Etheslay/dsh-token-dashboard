@@ -1,0 +1,13 @@
+# Normalize line endings so the repository is byte-identical on every platform.
+# Without this, Git for Windows checks these files out as CRLF and every diff
+# from a macOS or Linux contributor shows the whole file as changed.
+* text=auto eol=lf
+
+# Binary assets must never be line-ending converted.
+*.png binary
+*.jpg binary
+*.webp binary
+*.woff2 binary
+
+# Generated preview captures are reviewed as images, not diffed.
+docs/*.png -diff

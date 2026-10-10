@@ -1,0 +1,22 @@
+# The published package is defined by the `files` whitelist in package.json, so
+# none of this ships. These are development and research artefacts only.
+
+# Research scaffolding: extracted DSH packages read while writing the plugin.
+.reference/
+
+# Probe scripts used to reverse-engineer the session-log format. They are kept
+# because they document how the format was established, but they are not part of
+# the plugin.
+# (tools/ is intentionally NOT ignored — see below.)
+
+# Build output and installs.
+node_modules/
+lib/
+*.tgz
+
+# Generated preview captures.
+docs/panel.html
+docs/panel-dark.html
+
+# Local scratch.
+*.log
