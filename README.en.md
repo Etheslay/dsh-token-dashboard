@@ -40,11 +40,11 @@ Restart DSH, then open **Settings → Usage**. Requires DSH 0.2.x and Node ≥ 2
 
 ## 📸 Screenshots
 
-![Usage panel, dark theme](docs/panel-dark.png)
+![Usage overview: five all-time figures and a year of activity](docs/panel-overview.png)
 
-![Usage panel, light theme](docs/panel-light.png)
+![Insights and most used](docs/panel-insights.png)
 
-> Real output: `npm run preview` folds this machine's actual session logs and renders the panel with the theme tokens lifted verbatim from the DSH shell. See [`scripts/preview.mjs`](scripts/preview.mjs).
+> Taken from a real DSH session on this machine: 18 chats, 1.05 billion tokens, dark theme. Numbers and durations follow the UI language.
 
 ## 📦 Other ways to install
 

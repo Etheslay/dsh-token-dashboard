@@ -40,11 +40,11 @@ dsh plugin --profile desktop add @etheslay/dsh-token-dashboard --registry=https:
 
 ## 📸 截图
 
-![深色主题下的用量面板](docs/panel-dark.png)
+![用量概览：五个累计数字与一年的活动热力图](docs/panel-overview.png)
 
-![浅色主题下的用量面板](docs/panel-light.png)
+![洞察与最常使用](docs/panel-insights.png)
 
-> 截图是真实输出：`npm run preview` 折叠本机真实的会话日志，再用从 DSH shell 原样取出的主题变量渲染。见 [`scripts/preview.mjs`](scripts/preview.mjs)。
+> 取自真实运行中的 DSH：本机 18 个会话、10.5 亿 token 的读数，深色主题。数字与时长跟随界面语言。
 
 ## 📦 其它安装方式
 

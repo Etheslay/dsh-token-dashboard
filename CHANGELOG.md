@@ -3,6 +3,19 @@
 Notable changes to `@etheslay/dsh-token-dashboard`. The version numbers are the
 published npm versions.
 
+## 0.1.4
+
+Documentation only — `src/` is untouched.
+
+- The README screenshots are real captures of the panel running inside DSH now:
+  the five all-time figures with a year of activity, and the insights and
+  most-used blocks. The caption says where they came from — 18 chats and 1.05
+  billion tokens on this machine — rather than describing a render pipeline.
+- `docs/panel-dark.png` and `docs/panel-light.png` are gone with it. So is the
+  old caption's claim that the pictures came out of `npm run preview`: that
+  command renders `docs/panel.html` for layout measurements, and the two theme
+  renders it produced were not what a user actually sees.
+
 ## 0.1.3
 
 Documentation only — `src/` is untouched.
