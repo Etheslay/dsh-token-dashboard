@@ -4,6 +4,21 @@
 
 [English](README.en.md) | **中文**
 
+## 安装
+
+```sh
+dsh plugin add @etheslay/dsh-token-dashboard
+```
+
+装好后打开 **设置 → 用量**。
+
+npm 页面：<https://www.npmjs.com/package/@etheslay/dsh-token-dashboard>（版本、发布时间、文件清单都在那里）
+
+- **手动安装**：`npm install @etheslay/dsh-token-dashboard`，再把包名登记进该 profile `package.json` 的 `dsh.profile.bundles`
+- **从源码**：克隆本仓库后 `npm install && npm run build`，再 `npm run refresh:profile`（见[开发](#开发)）
+
+要求 DSH 0.2.x 与 Node ≥ 22.18（见[兼容性](#兼容性)）。
+
 ![用量面板](docs/panel-dark.png)
 
 > 截图是真实输出：`npm run preview` 折叠本机真实的会话日志，并用从 DSH shell 原样取出的主题变量渲染面板。见 [`scripts/preview.mjs`](scripts/preview.mjs)。
@@ -90,16 +105,6 @@ width: min(100%, calc(var(--tdd-heat-columns) * (var(--tdd-heat-cell) + var(--td
    花掉预算的模型。
 4. **颜色越深 = 用量越重，两个主题一致。** Codex 的深色主题是随用量变亮的，
    那和其他所有配额表都反着来，所以这里的深色色阶和浅色一样是浅 → 深。
-
-## 安装
-
-```sh
-dsh plugin add @etheslay/dsh-token-dashboard
-```
-
-然后打开 **设置 → 用量**。
-
-手动安装：把包加进 profile，并在该 profile 的 `package.json` 的 `dsh.profile.bundles` 里登记。
 
 ## 工作原理
 

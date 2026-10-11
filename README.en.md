@@ -4,6 +4,21 @@ Token-usage profile panel for [DeepSeek Harness](https://github.com/deepseek-ai/
 
 **English** | [中文](README.md)
 
+## Install
+
+```sh
+dsh plugin add @etheslay/dsh-token-dashboard
+```
+
+Then open **Settings → Usage**.
+
+npm page: <https://www.npmjs.com/package/@etheslay/dsh-token-dashboard> — version, publish date and file list live there.
+
+- **By hand**: `npm install @etheslay/dsh-token-dashboard`, then list the package under `dsh.profile.bundles` in the profile's `package.json`
+- **From source**: clone this repo, then `npm install && npm run build && npm run refresh:profile` (see [Develop](#develop))
+
+Requires DSH 0.2.x and Node ≥ 22.18 (see [Compatibility](#compatibility)).
+
 ![Usage panel](docs/panel-dark.png)
 
 > The screenshot is real output: `npm run preview` folds this machine's actual
@@ -124,16 +139,6 @@ Copying Codex literally would have been wrong in these four places:
 4. **A darker cell means a heavier day, in both themes.** Codex brightens its
    dark theme as usage rises; that reads backwards next to every other quota
    meter, so the dark ramp runs pale → deep like the light one.
-
-## Install
-
-```sh
-dsh plugin add @etheslay/dsh-token-dashboard
-```
-
-Then open **Settings → Usage**.
-
-To install by hand, add the package to your profile and list it under `dsh.profile.bundles` in the profile's `package.json`.
 
 ## How it works
 
