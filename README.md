@@ -14,16 +14,23 @@
 
 ## 🚀 快速开始（安装）
 
+**桌面应用（Electron 版）** —— profile 填 `desktop`：
+
 ```sh
-# --profile 填你实际在用的那个：桌面应用（Electron 版）→ desktop；dsh web → web
 dsh plugin --profile desktop add @etheslay/dsh-token-dashboard --registry=https://registry.npmjs.org/
+```
+
+**`dsh web`** —— profile 填 `web`：
+
+```sh
+dsh plugin --profile web add @etheslay/dsh-token-dashboard --registry=https://registry.npmjs.org/
 ```
 
 装完**重开 DSH**，打开 **设置 → 用量**。要求 DSH 0.2.x、Node ≥ 22.18。
 
 > 💡 想更新？把上面那条命令再跑一次，`@latest` 会取到新版本。
 
-> 💡 懒得自己敲？把这句发给能执行终端命令的 agent：**「把 DSH 插件 @etheslay/dsh-token-dashboard 装进我的 desktop profile，装完用 `dsh --profile desktop --dump-config` 确认一下」**。
+> 💡 懒得自己敲？把这句发给能执行终端命令的 agent：**「把 DSH 插件 @etheslay/dsh-token-dashboard 装进我的 desktop profile，装完用 `dsh --profile desktop --dump-config` 确认一下」**（`dsh web` 用户把 `desktop` 换成 `web`）。
 
 > 💡 `--registry` 建议保留：国内默认走 npmmirror，新发布的 scoped 包在镜像上有同步延迟，省掉它可能报 404。
 
@@ -55,8 +62,16 @@ dsh plugin --profile desktop add @etheslay/dsh-token-dashboard --registry=https:
 
 ## 🗑️ 卸载
 
+**桌面应用（Electron 版）**：
+
 ```sh
 dsh plugin --profile desktop remove @etheslay/dsh-token-dashboard
+```
+
+**`dsh web`**：
+
+```sh
+dsh plugin --profile web remove @etheslay/dsh-token-dashboard
 ```
 
 记得同时把这个包名从该 profile `package.json` 的 `dsh.profile.bundles` 里删掉。插件不留用户数据 —— 它只读会话日志，从不写盘。

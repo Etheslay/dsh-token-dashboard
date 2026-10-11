@@ -14,16 +14,23 @@
 
 ## 🚀 Quick start (install)
 
+**Desktop app (Electron)** — the profile is `desktop`:
+
 ```sh
-# --profile: desktop for the desktop app (Electron), web for `dsh web`
 dsh plugin --profile desktop add @etheslay/dsh-token-dashboard --registry=https://registry.npmjs.org/
+```
+
+**`dsh web`** — the profile is `web`:
+
+```sh
+dsh plugin --profile web add @etheslay/dsh-token-dashboard --registry=https://registry.npmjs.org/
 ```
 
 Restart DSH, then open **Settings → Usage**. Requires DSH 0.2.x and Node ≥ 22.18.
 
 > 💡 To update, run the same command again — `@latest` picks up the new version.
 
-> 💡 Rather not type it? Send this to any agent that can run terminal commands: **"Install the DSH plugin @etheslay/dsh-token-dashboard into my desktop profile, then confirm it with `dsh --profile desktop --dump-config`."**
+> 💡 Rather not type it? Send this to any agent that can run terminal commands: **"Install the DSH plugin @etheslay/dsh-token-dashboard into my desktop profile, then confirm it with `dsh --profile desktop --dump-config`."** (`dsh web` users: swap `desktop` for `web`.)
 
 > 💡 Keep `--registry`: the default registry in mainland China is npmmirror, which syncs newly published scoped packages with a delay — leaving it out can 404.
 
@@ -55,8 +62,16 @@ Restart DSH, then open **Settings → Usage**. Requires DSH 0.2.x and Node ≥ 2
 
 ## 🗑️ Uninstall
 
+**Desktop app (Electron)**:
+
 ```sh
 dsh plugin --profile desktop remove @etheslay/dsh-token-dashboard
+```
+
+**`dsh web`**:
+
+```sh
+dsh plugin --profile web remove @etheslay/dsh-token-dashboard
 ```
 
 Remove the package name from `dsh.profile.bundles` in that profile's `package.json` as well. The plugin leaves no user data behind — it only ever reads session logs.
