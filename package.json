@@ -50,7 +50,8 @@
     "CHANGELOG.md",
     "README.md",
     "README.en.md",
-    "docs/panel-dark.png"
+    "docs/panel-dark.png",
+    "docs/panel-light.png"
   ],
   "dsh": {
     "bundle": {
