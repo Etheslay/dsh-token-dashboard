@@ -46,8 +46,10 @@ export const zh: Record<string, string> = {
   statCache: '\u7f13\u5b58\u547d\u4e2d\u7387',
   runs: '{n} \u6b21',
   runOne: '{n} \u6b21',
-  shareRequests: '{value} \u00b7 \u5360\u8bf7\u6c42\u7684 {pct}%',
-  shareTokens: '{value} \u00b7 \u5360 token \u7684 {pct}%',
+  // Terse on purpose, matching the reference panel's `high · 26%`. The long
+  // form ("占 token 的 100%") ellipsized the row label in a real settings panel.
+  shareRequests: '{value} \u00b7 {pct}%',
+  shareTokens: '{value} \u00b7 {pct}%',
   none: '\u6682\u65e0\u8bb0\u5f55',
 
   errTitle: '\u8bfb\u4e0d\u5230\u7528\u91cf\u6570\u636e',
@@ -99,8 +101,9 @@ export const en: Record<string, string> = {
   statCache: 'Cache hit rate',
   runs: '{n} runs',
   runOne: '{n} run',
-  shareRequests: '{value} · {pct}% of requests',
-  shareTokens: '{value} · {pct}% of tokens',
+  // Terse on purpose, matching the reference panel's `high · 26%`.
+  shareRequests: '{value} · {pct}%',
+  shareTokens: '{value} · {pct}%',
   none: 'None recorded',
 
   errTitle: 'Usage data unavailable',

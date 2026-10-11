@@ -98,16 +98,62 @@ function levelOf(value: number, thresholds: readonly [number, number, number]): 
   return 4
 }
 
-/** The heatmap's built grid. */
-export interface HeatGrid {
+/** One stacked heatmap block: six months of columns plus its own month axis. */
+export interface HeatBlock {
   /** Cells in column-major fill order. */
   cells: HeatCell[]
-  /** One entry per column, labelled only where the month changes. */
+  /** One entry per column, labelled only under the month it begins. */
   months: Array<{ key: string; label: string }>
 }
 
+/** The heatmap's built grid. */
+export interface HeatGrid {
+  /** The stacked blocks, earliest first. */
+  blocks: HeatBlock[]
+  /** Total columns across every block. */
+  columnCount: number
+}
+
+/** How many stacked blocks a year is split into. Two blocks of six months. */
+export const HEAT_BLOCKS = 2
+
 /**
- * Build the heatmap's cell grid, month labels included.
+ * Label the column that contains a month's first day.
+ *
+ * Anchoring on "the first of the month is in this column" rather than "the
+ * month changed since the previous column" is what makes the split safe: a
+ * column is seven days, so it holds at most one first-of-month, each month is
+ * named exactly once, and a block that starts mid-month simply stays unlabelled
+ * until the next month begins rather than repeating the month its predecessor
+ * already named.
+ * @param cells - The block's cells, column-major.
+ * @param windowFrom - First day the window covers.
+ * @param windowTo - Last day the window covers.
+ * @param locale - Locale for the month name.
+ * @returns One label slot per column.
+ */
+function monthLabels(
+  cells: readonly HeatCell[],
+  windowFrom: string,
+  windowTo: string,
+  locale?: string,
+): Array<{ key: string; label: string }> {
+  const months: Array<{ key: string; label: string }> = []
+  for (let index = 0; index < cells.length; index += 7) {
+    const column = cells.slice(index, index + 7)
+    const startsMonth = column.find(
+      (cell) => cell.date.endsWith('-01') && cell.date >= windowFrom && cell.date <= windowTo,
+    )
+    months.push({
+      key: column[0]!.date,
+      label: startsMonth === undefined ? '' : dayLabel(startsMonth.date, locale, { month: 'short' }),
+    })
+  }
+  return months
+}
+
+/**
+ * Build the heatmap as stacked six-month blocks.
  *
  * Both ends are padded to whole weeks: the first column back to its Sunday and
  * the last forward to its Saturday. The grid fills column-major over exactly
@@ -116,22 +162,23 @@ export interface HeatGrid {
  * be. Cumulative padding carries the final total forward so the series stays
  * monotonic.
  *
- * A column is labelled from its first day that is INSIDE the window, not from
- * its own first day. The Sunday padding belongs to the previous month, so
- * anchoring on it would print a leading month the window does not actually
- * cover — a bare `10月` ahead of the real `11月`.
+ * The split is by COLUMN, not by calendar month. Twelve months is 52 or 53
+ * weeks, which does not divide in half evenly; splitting on a month boundary
+ * would put 27 columns in one block and 26 in the other, and because the
+ * columns are fluid that would give the two blocks visibly different cell
+ * sizes. Halving the week count keeps them within one column of each other.
  * @param snapshot - The snapshot carrying the day buckets and window.
  * @param mode - How each cell aggregates.
  * @param locale - Locale for the month names.
- * @returns The cells plus the per-column month labels.
+ * @returns The stacked blocks plus the total column count.
  */
 export function buildHeatmap(snapshot: UsageSnapshot, mode: HeatMode, locale?: string): HeatGrid {
   const byDate = new Map<string, DayUsage>()
   for (const day of snapshot.days) byDate.set(day.date, day)
 
   const windowFrom = snapshot.heatmap.from
-  const to = snapshot.heatmap.to
-  const from = shiftDay(windowFrom, -weekdayOf(windowFrom))
+  const windowTo = snapshot.heatmap.to
+  let cursor = shiftDay(windowFrom, -weekdayOf(windowFrom))
 
   const weekly = new Map<string, number>()
   if (mode === 'weekly') {
@@ -143,8 +190,7 @@ export function buildHeatmap(snapshot: UsageSnapshot, mode: HeatMode, locale?: s
 
   const days: Array<{ date: string; value: number }> = []
   let running = 0
-  let cursor = from
-  while (cursor <= to) {
+  while (cursor <= windowTo) {
     const tokens = byDate.get(cursor)?.totalTokens ?? 0
     running += tokens
     const value = mode === 'weekly' ? (weekly.get(cursor) ?? 0) : mode === 'cumulative' ? running : tokens
@@ -164,25 +210,14 @@ export function buildHeatmap(snapshot: UsageSnapshot, mode: HeatMode, locale?: s
     level: levelOf(day.value, thresholds),
   }))
 
-  const months: Array<{ key: string; label: string }> = []
-  let previousMonth: string | undefined
-  for (let index = 0; index < cells.length; index += 7) {
-    const columnStart = cells[index]!.date
-    // The first day of this column that the window actually covers.
-    const anchor = columnStart < windowFrom ? windowFrom : columnStart
-    if (anchor > to) {
-      months.push({ key: columnStart, label: '' })
-      continue
-    }
-    const month = anchor.slice(0, 7)
-    if (month === previousMonth) {
-      months.push({ key: columnStart, label: '' })
-      continue
-    }
-    previousMonth = month
-    months.push({ key: columnStart, label: dayLabel(anchor, locale, { month: 'short' }) })
+  const columnCount = cells.length / 7
+  const perBlock = Math.ceil(columnCount / HEAT_BLOCKS)
+  const blocks: HeatBlock[] = []
+  for (let column = 0; column < columnCount; column += perBlock) {
+    const slice = cells.slice(column * 7, Math.min(columnCount, column + perBlock) * 7)
+    blocks.push({ cells: slice, months: monthLabels(slice, windowFrom, windowTo, locale) })
   }
-  return { cells, months }
+  return { blocks, columnCount }
 }
 
 /** Props for {@link UsageView}, the pure presentation component. */
@@ -363,7 +398,7 @@ function Activity({
   setHovered: (key: string | undefined) => void
 }): ReactNode {
   const grid = useMemo(() => buildHeatmap(snapshot, mode, locale), [snapshot, mode, locale])
-  const active = grid.cells.find((cell) => cell.key === hovered)
+  const active = grid.blocks.flatMap((block) => block.cells).find((cell) => cell.key === hovered)
 
   return createElement(
     'section',
@@ -395,39 +430,43 @@ function Activity({
     createElement(
       'div',
       { className: 'tdd-heat' },
+      // Two stacked six-month blocks. Splitting the year in half is what lets
+      // every column stay wide enough to read without the row overflowing.
       createElement(
         'div',
-        { className: 'tdd-heat-scroll' },
-        createElement(
-          'div',
-          { className: 'tdd-heat-grid', role: 'img', 'aria-label': t('activity') },
-          ...grid.cells.map((cell) =>
-            createElement('div', {
-              key: cell.key,
-              className: 'tdd-cell',
-              'data-level': cell.level,
-              title: interpolate(t('cellTooltip'), {
-                date: dayLabel(cell.date, locale, { year: 'numeric', month: 'short', day: 'numeric' }),
-                value: localeCount(cell.value, locale),
-              }),
-              onMouseEnter: () => {
-                setHovered(cell.key)
-              },
-              onMouseLeave: () => {
-                setHovered(undefined)
-              },
-            }),
-          ),
-        ),
-      ),
-      createElement(
-        'div',
-        { className: 'tdd-heat-scroll' },
-        createElement(
-          'div',
-          { className: 'tdd-heat-months', 'aria-hidden': 'true' },
-          ...grid.months.map((month) =>
-            createElement('span', { className: 'tdd-heat-month', key: month.key }, month.label),
+        { className: 'tdd-heat-blocks' },
+        ...grid.blocks.map((block, blockIndex) =>
+          createElement(
+            'div',
+            { className: 'tdd-heat-block', key: block.cells[0]?.date ?? blockIndex },
+            createElement(
+              'div',
+              { className: 'tdd-heat-grid', role: 'img', 'aria-label': t('activity') },
+              ...block.cells.map((cell) =>
+                createElement('div', {
+                  key: cell.key,
+                  className: 'tdd-cell',
+                  'data-level': cell.level,
+                  title: interpolate(t('cellTooltip'), {
+                    date: dayLabel(cell.date, locale, { year: 'numeric', month: 'short', day: 'numeric' }),
+                    value: localeCount(cell.value, locale),
+                  }),
+                  onMouseEnter: () => {
+                    setHovered(cell.key)
+                  },
+                  onMouseLeave: () => {
+                    setHovered(undefined)
+                  },
+                }),
+              ),
+            ),
+            createElement(
+              'div',
+              { className: 'tdd-heat-months', 'aria-hidden': 'true' },
+              ...block.months.map((month) =>
+                createElement('span', { className: 'tdd-heat-month', key: month.key }, month.label),
+              ),
+            ),
           ),
         ),
       ),

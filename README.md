@@ -18,12 +18,18 @@ Top to bottom:
 |---|---|
 | Identity | Avatar, display name, and handle from the signed-in DeepSeek account. Hidden when signed out. |
 | Five numbers | `Lifetime tokens` · `Peak tokens` · `Longest chat` · `Longest streak` · `Current streak` |
-| `Token activity` | A year-long contribution heatmap, with **Daily · Weekly · Cumulative** modes and a `Less ▢▢▢▢▢ More` ramp |
+| `Token activity` | A year of contribution cells, drawn as two stacked six-month blocks, with **Daily · Weekly · Cumulative** modes and a `Less ▢▢▢▢▢ More` ramp |
 | `Insights` | `Most used reasoning` · `Most used model` · `Skills explored` · `Total skills used` · `Total chats` · `Total turns` · `Cache hit rate` |
 | `Most used` | The skills invoked most often, as `$name` with a run count |
 
 Everything is all-time, so there is no range control to set. The heatmap is the
 only time axis.
+
+The year is split into **two six-month blocks rather than one long row**. A
+single row needs 53 columns, which at a readable cell size is wider than a
+settings panel and turns into a horizontal scrollbar; halving it leaves ~26
+columns per block, so the cells stay legible and a whole year fits without
+scrolling at any panel width.
 
 ## Why it looks like Codex
 
@@ -42,9 +48,9 @@ comment beside each one:
 | `percentOfContextWindowRemaining` | `tui/src/token_usage.rs` |
 | `formatAbsoluteTime` | `tui/src/status/helpers.rs` |
 
-The heatmap's five-step purple ramp is not guessed at either: it was sampled
-pixel-for-pixel out of the reference panel with `tools/analyze-heatmap.mjs`
-(`#3f226a` → `#6b3ab4` → `#924ff7` → `#be95fa` on a neutral empty step).
+The activity ramp is **GitHub's contribution green**, read out of a swatch of the
+real graph with `tools/sample-shot.mjs`: `#033a16` → `#196c2e` → `#2ea043` →
+`#56d364` on `#151b23`, with GitHub's light palette for the light theme.
 
 ### Numbers follow the UI language
 
@@ -54,21 +60,18 @@ duration is **`46分59秒`**, not `46m 59s`. `localeCompact` / `localeDuration` 
 `localeCount` own that split, and `tests/render.test.mjs` asserts the exact
 strings from the reference screenshots.
 
-### Four deliberate deviations
+### Three deliberate deviations
 
-Copying Codex literally would have been wrong in these four places:
+Copying Codex literally would have been wrong in these three places:
 
 1. **Nothing is claimed that DSH cannot measure.** Codex's panel shows credits,
    a plan name, an account email, and 5-hour / weekly / monthly rate-limit
    windows. DSH has none of those, so none of them are here — not even as a
    placeholder bar with an invented denominator. The metrics that remain are
    each backed by a field the session log actually writes.
-2. **The heatmap's empty step is re-sourced.** The sampled `#181818` sits on
-   `#111111` in the reference, but DSH's dark surface is `#151517`, which leaves
-   it nearly invisible; the empty cell uses DSH's nested-surface token instead.
-3. **English pluralization is fixed.** Codex prints `{days} days` with no
+2. **English pluralization is fixed.** Codex prints `{days} days` with no
    singular, so a one-day streak reads `1 days`. That is grammar, not design.
-4. **`Most used model` ranks by tokens, not by reply count.** A hundred cheap
+3. **`Most used model` ranks by tokens, not by reply count.** A hundred cheap
    replies should not outrank the one model that spent the budget.
 
 ## Install

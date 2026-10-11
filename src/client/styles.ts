@@ -21,19 +21,14 @@ export const STYLE_ID = 'dsh-token-dashboard/panel'
 /**
  * The activity heatmap's five steps.
  *
- * Index 0 is "no activity"; 1-4 are the ramp, darkest to brightest. The purple
- * values were read out of the reference screenshots with
- * `tools/analyze-heatmap.mjs`.
- *
- * The empty step is deliberately NOT the sampled `#181818`: DSH's own dark
- * surface is `#151517`, which leaves that value almost invisible, whereas the
- * reference panel sat it on `#111111`. It uses the theme's nested-surface token
- * instead, so the grid reads in either theme and still looks like the
- * reference.
+ * Index 0 is "no activity"; 1-4 are the ramp. These are GitHub's contribution
+ * colours, read out of a swatch of the real thing with `tools/sample-shot.mjs`
+ * (`#033a16` `#196c2e` `#2ea043` `#56d364` on `#151b23`). The light row is
+ * GitHub's light palette for the same graph.
  */
 export const HEATMAP_RAMP = {
-  light: ['#ebebed', '#ddd0fb', '#b98ef7', '#8b46f0', '#5f21c9'],
-  dark: ['#232326', '#3f226a', '#6b3ab4', '#924ff7', '#be95fa'],
+  light: ['#eff2f5', '#aceebb', '#4ac26b', '#2da44e', '#116329'],
+  dark: ['#151b23', '#033a16', '#196c2e', '#2ea043', '#56d364'],
 } as const
 
 /** The panel stylesheet. */
@@ -43,6 +38,13 @@ export const PANEL_CSS = [
   `--tdd-ramp-2:${HEATMAP_RAMP.light[2]};--tdd-ramp-3:${HEATMAP_RAMP.light[3]};--tdd-ramp-4:${HEATMAP_RAMP.light[4]};`,
   'display:flex;flex-direction:column;gap:26px;min-width:0;height:100%;overflow-y:auto;',
   'padding:4px 2px 32px;color:var(--dsw-alias-label-primary);font-size:13px;line-height:1.5}',
+  // `.tdd` is a scroll container, so its children are flex items that would
+  // otherwise SHRINK once the content grew taller than the viewport — and
+  // because several of them clip their overflow, shrinking squashes them to
+  // nothing instead of producing a scrollbar. Two stacked heatmap blocks made
+  // the panel tall enough to hit this on a short window: the five-number bar
+  // collapsed to its 2px of borders and every figure vanished.
+  '.tdd>*{flex:0 0 auto}',
   'body[data-ds-dark-theme] .tdd{',
   `--tdd-ramp-0:${HEATMAP_RAMP.dark[0]};--tdd-ramp-1:${HEATMAP_RAMP.dark[1]};`,
   `--tdd-ramp-2:${HEATMAP_RAMP.dark[2]};--tdd-ramp-3:${HEATMAP_RAMP.dark[3]};--tdd-ramp-4:${HEATMAP_RAMP.dark[4]}}`,
@@ -84,20 +86,20 @@ export const PANEL_CSS = [
   ".tdd-tab[aria-pressed='true']{color:var(--dsw-alias-label-primary);font-weight:600}",
 
   // heatmap
-  '.tdd-heat{display:flex;flex-direction:column;gap:6px;min-width:0}',
-  '.tdd-heat-scroll{overflow-x:auto;padding-bottom:2px}',
-  // The cells and the month labels are two grids that MUST share one column
-  // geometry, or the labels drift out from under their columns. Both therefore
-  // declare the same `grid-auto-columns`, the same gap, and the same ceiling.
-  // The earlier version let the label grid size its columns to their own text,
-  // which is why the months never lined up.
+  // The year is drawn as two stacked six-month blocks, not one long row. A
+  // single row needs 53 columns, which at a readable cell size is wider than
+  // the settings panel and becomes a horizontal scrollbar; halving it gives each
+  // block ~26 columns, so the cells stay legible and a whole year fits without
+  // scrolling at any panel width.
   //
-  // Columns are fluid (`1fr`) and cells are square (`aspect-ratio: 1`), so a
-  // year always fits the panel instead of overflowing into a scrollbar. The
-  // 520px floor is where a cell stops being a readable target; below it the row
-  // scrolls rather than shrinking to nothing.
+  // The cells and the month axis are separate grids, so every one of them MUST
+  // declare identical column geometry or the labels drift out from under their
+  // columns. They share one rule below for exactly that reason.
+  '.tdd-heat{display:flex;flex-direction:column;gap:8px;min-width:0}',
+  '.tdd-heat-blocks{display:flex;flex-direction:column;gap:16px;min-width:0}',
+  '.tdd-heat-block{display:flex;flex-direction:column;gap:6px;min-width:0}',
   '.tdd-heat-grid,.tdd-heat-months{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);',
-  'gap:4px;width:100%;min-width:520px;max-width:1080px}',
+  'gap:4px;width:100%;max-width:660px}',
   '.tdd-heat-grid{grid-template-rows:repeat(7,minmax(0,1fr))}',
   '.tdd-cell{width:100%;aspect-ratio:1;border-radius:3px;background:var(--tdd-ramp-0)}',
   ".tdd-cell[data-level='1']{background:var(--tdd-ramp-1)}",
@@ -119,7 +121,7 @@ export const PANEL_CSS = [
   '.tdd-col{display:flex;flex-direction:column;gap:10px;min-width:0}',
   '.tdd-col-title{font-size:13px;font-weight:600}',
   '.tdd-rows{display:flex;flex-direction:column;gap:9px;min-width:0}',
-  '.tdd-row{display:grid;grid-template-columns:minmax(0,1fr) max-content;gap:14px;align-items:baseline;min-width:0}',
+  '.tdd-row{display:grid;grid-template-columns:minmax(max-content,1fr) max-content;gap:6px 14px;align-items:baseline;min-width:0}',
   '.tdd-row-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
   '.tdd-row-value{color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;white-space:nowrap}',
 

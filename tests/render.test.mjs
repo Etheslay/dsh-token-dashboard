@@ -50,7 +50,7 @@ const { UsageView, makeTranslate, buildHeatmap } = await import(pathToFileURL(pa
 const { en, zh } = await import('../src/client/locales.ts')
 // The stylesheet is plain TS, so Node can load it directly for the CSS
 // invariants below.
-const { PANEL_CSS } = await import('../src/client/styles.ts')
+const { PANEL_CSS, HEATMAP_RAMP } = await import('../src/client/styles.ts')
 
 let failures = 0
 const check = (name, fn) => {
@@ -264,18 +264,39 @@ check('the activity section offers daily, weekly and cumulative', () => {
   assert.equal(pressed.length, 1, 'exactly one mode is active')
 })
 
-check('the heatmap is a whole number of seven-row weeks starting on Sunday', () => {
+/** Every cell across every block, in reading order. */
+const allCells = (grid) => grid.blocks.flatMap((block) => block.cells)
+/** Every label slot across every block, with its block index. */
+const allMonths = (grid) => grid.blocks.flatMap((block, blockIndex) => block.months.map((month) => ({ ...month, blockIndex })))
+
+check('the year is split into two stacked six-month blocks', () => {
+  const grid = buildHeatmap(snapshot, 'daily', 'en-GB')
+  assert.equal(grid.blocks.length, 2, 'two blocks')
+  assert.ok(grid.columnCount >= 52 && grid.columnCount <= 54, `a year is 52-53 weeks, got ${grid.columnCount}`)
+  const [first, second] = grid.blocks
+  assert.equal(first.cells.length + second.cells.length, grid.columnCount * 7, 'the blocks partition the year')
+  // Splitting by column keeps the blocks within one column of each other, so
+  // fluid tracks give them the same cell size.
+  const a = first.cells.length / 7
+  const b = second.cells.length / 7
+  assert.ok(Math.abs(a - b) <= 1, `blocks must be within one column, got ${a} and ${b}`)
+  assert.ok(a >= 24 && a <= 28, `a six-month block is ~26 columns, got ${a}`)
+})
+
+check('every block is a whole number of seven-row weeks starting on Sunday', () => {
   const grid = buildHeatmap(snapshot, 'daily')
-  assert.equal(grid.cells.length % 7, 0, 'the grid must fill complete weeks')
-  assert.equal(grid.months.length, grid.cells.length / 7, 'one label slot per column')
-  const [year, month, day] = grid.cells[0].date.split('-').map(Number)
-  assert.equal(new Date(Date.UTC(year, month - 1, day)).getUTCDay(), 0, 'the grid must start on a Sunday')
+  for (const [index, block] of grid.blocks.entries()) {
+    assert.equal(block.cells.length % 7, 0, `block ${index} must fill complete weeks`)
+    assert.equal(block.months.length, block.cells.length / 7, `block ${index} needs one label slot per column`)
+    const [year, month, day] = block.cells[0].date.split('-').map(Number)
+    assert.equal(new Date(Date.UTC(year, month - 1, day)).getUTCDay(), 0, `block ${index} must start on a Sunday`)
+  }
 })
 
 check('the three heatmap modes differ and cumulative never decreases', () => {
-  const daily = buildHeatmap(snapshot, 'daily').cells
-  const weekly = buildHeatmap(snapshot, 'weekly').cells
-  const cumulative = buildHeatmap(snapshot, 'cumulative').cells
+  const daily = allCells(buildHeatmap(snapshot, 'daily'))
+  const weekly = allCells(buildHeatmap(snapshot, 'weekly'))
+  const cumulative = allCells(buildHeatmap(snapshot, 'cumulative'))
   assert.equal(daily.length, cumulative.length, 'all modes share one grid')
 
   for (let index = 1; index < cumulative.length; index++) {
@@ -288,34 +309,43 @@ check('the three heatmap modes differ and cumulative never decreases', () => {
 })
 
 check('the ramp spreads across all five steps', () => {
-  const levels = new Set(buildHeatmap(snapshot, 'daily').cells.map((cell) => cell.level))
+  const levels = new Set(allCells(buildHeatmap(snapshot, 'daily')).map((cell) => cell.level))
   assert.ok(levels.has(0), 'empty days must use the neutral step')
   assert.ok([...levels].some((level) => level > 0), 'active days must use the ramp')
   for (const level of levels) assert.ok(level >= 0 && level <= 4, `level ${level} is off the ramp`)
 })
 
-check('month labels appear only where the month changes', () => {
-  const labelled = buildHeatmap(snapshot, 'daily', 'en-GB')
-  const named = labelled.months.filter((month) => month.label.length > 0)
+check('each block names each month exactly once, and only the month it starts', () => {
+  const grid = buildHeatmap(snapshot, 'daily', 'en-GB')
+  const named = allMonths(grid).filter((month) => month.label.length > 0)
   assert.ok(named.length > 0, 'at least one month must be named')
-  assert.ok(named.length <= 13, 'a year has at most 13 labelled columns')
-  for (let index = 1; index < labelled.months.length; index++) {
-    const current = labelled.months[index]
-    const previous = labelled.months[index - 1]
-    assert.ok(current.label === '' || current.label !== previous.label, 'a month must not be labelled twice in a row')
+  // 12 months, named once each — a block that starts mid-month stays unlabelled
+  // until the next month begins rather than repeating its predecessor's month.
+  assert.equal(named.length, 12, `a 12-month window names 12 months, got: ${named.map((m) => m.label).join(', ')}`)
+  assert.equal(new Set(named.map((m) => m.label)).size, 12, 'no month may be named twice')
+
+  // Each label sits on the column that actually contains the 1st of that month.
+  for (const block of grid.blocks) {
+    block.months.forEach((month, index) => {
+      if (month.label === '') return
+      const column = block.cells.slice(index * 7, index * 7 + 7)
+      const first = column.find((cell) => cell.date.endsWith('-01'))
+      assert.ok(
+        first !== undefined && first.date >= snapshot.heatmap.from && first.date <= snapshot.heatmap.to,
+        `column ${index} labelled "${month.label}" must contain an in-window first-of-month`,
+      )
+    })
   }
 })
 
 check('the Sunday padding before the window is not labelled', () => {
   // 2025-11-01 is a Saturday, so the grid pads back to Sunday 2025-10-26. That
   // padding is October, and labelling it printed a bare "10月" ahead of the real
-  // "11月" — the second thing the reference panel got right and this did not.
+  // "11月".
   const grid = buildHeatmap(snapshot, 'daily', 'en-GB')
-  assert.equal(grid.cells[0].date, '2025-10-26', 'the first column is padded to its Sunday')
-  assert.equal(grid.months[0].label, 'Nov', 'the first column is labelled for the window, not the padding')
-  const named = grid.months.filter((month) => month.label.length > 0).map((month) => month.label)
-  assert.equal(named.length, 12, `a 12-month window must name 12 months, got: ${named.join(', ')}`)
-  assert.equal(new Set(named).size, named.length, 'no month may be labelled twice')
+  const first = grid.blocks[0]
+  assert.equal(first.cells[0].date, '2025-10-26', 'the first column is padded to its Sunday')
+  assert.equal(first.months[0].label, 'Nov', 'the first column is labelled for the window, not the padding')
 })
 
 /** The declaration body of one rule, anchored so a shared selector cannot match. */
@@ -331,17 +361,17 @@ const rulesMentioning = (css, token) =>
   [...css.matchAll(/[^{}]*\{[^}]*\}/g)].map((match) => match[0]).filter((rule) => rule.includes(token))
 
 check('the label row and the cell grid declare identical column geometry', () => {
-  // This is the invariant month alignment rests on. The two rows are separate
-  // grids, so a label can only sit under its column if BOTH declare the same
-  // track sizing, gap and width bounds. The first version let the label grid
-  // size its columns to their own text and the months drifted out from under
-  // the cells; a CSS edit can reintroduce exactly that.
+  // This is the invariant month alignment rests on. The cells and the axis are
+  // separate grids — now two of each — so a label can only sit under its column
+  // if EVERY one declares the same track sizing, gap and width bound. The first
+  // version let the label grid size its columns to their own text and the months
+  // drifted out from under the cells; a CSS edit can reintroduce exactly that.
   const shared = ruleBody(PANEL_CSS, '.tdd-heat-grid,.tdd-heat-months')
-  for (const property of ['grid-auto-flow', 'grid-auto-columns', 'gap', 'width', 'min-width', 'max-width']) {
+  for (const property of ['grid-auto-flow', 'grid-auto-columns', 'gap', 'width', 'max-width']) {
     assert.ok(shared.includes(`${property}:`), `the shared rule must set ${property}`)
   }
   assert.ok(shared.includes('grid-auto-columns:minmax(0,1fr)'), 'columns must be fluid, not content-sized')
-  assert.ok(shared.includes('width:100%'), 'the grid must fill the panel rather than demand a scrollbar')
+  assert.ok(shared.includes('width:100%'), 'the grid must fill the panel')
 
   const labels = ruleBody(PANEL_CSS, '.tdd-heat-months')
   assert.ok(!labels.includes('grid-auto-columns'), 'the label row must not override the shared track sizing')
@@ -350,34 +380,37 @@ check('the label row and the cell grid declare identical column geometry', () =>
   assert.ok(ruleBody(PANEL_CSS, '.tdd-cell').includes('aspect-ratio:1'), 'cells must stay square')
 })
 
-check('nothing about the heatmap sizes itself to its content', () => {
-  // `width: max-content` on either row is exactly what produced the scrollbar:
-  // 53 columns of fixed 16px cells are wider than a narrow settings panel.
-  // The insights rows legitimately use `max-content` for their value column, so
-  // the check is scoped to the heatmap's own rules.
+check('nothing about the heatmap can produce a horizontal scrollbar', () => {
+  // `width: max-content` on either row is exactly what produced one: 53 columns
+  // of fixed 16px cells are wider than a narrow settings panel. The split into
+  // two blocks removed the need for a minimum width as well, so there must be
+  // neither a content width nor an overflow container left.
   const heatmapRules = rulesMentioning(PANEL_CSS, 'tdd-heat')
   assert.ok(heatmapRules.length > 0, 'the heatmap rules must exist')
   for (const rule of heatmapRules) {
     assert.ok(!rule.includes('max-content'), `the heatmap must not size to content: ${rule.slice(0, 80)}`)
+    assert.ok(!rule.includes('overflow-x'), `no heatmap row may scroll: ${rule.slice(0, 80)}`)
+    assert.ok(!rule.includes('min-width:5'), `no heatmap row needs a minimum width: ${rule.slice(0, 80)}`)
   }
   assert.ok(/max-width:\d+px/.test(PANEL_CSS), 'the grid needs a width ceiling so cells do not balloon')
-  assert.ok(/min-width:\d+px/.test(PANEL_CSS), 'the grid needs a width floor before it scrolls')
 })
 
-check('one label slot per column, and the first names the window month', () => {
-  const grid = buildHeatmap(snapshot, 'daily', 'en-GB')
-  assert.equal(grid.months.length, grid.cells.length / 7, 'one label slot per column')
-  const columns = grid.cells.length / 7
-  assert.ok(columns >= 52 && columns <= 54, `a year is 52-53 weeks, got ${columns}`)
-  grid.months.forEach((month, index) => {
-    if (month.label === '') return
-    // The label is rendered at column `index`'s own left edge, so the column
-    // must actually contain the day the label is named for.
-    const columnStart = grid.cells[index * 7].date
-    const columnEnd = grid.cells[index * 7 + 6].date
-    const anchor = columnStart < snapshot.heatmap.from ? snapshot.heatmap.from : columnStart
-    assert.ok(anchor >= columnStart && anchor <= columnEnd, `column ${index} must contain its anchor ${anchor}`)
-  })
+check('the activity ramp is GitHub green, not the earlier purple', () => {
+  // Read out of a swatch of the real graph; the purple this replaced was a
+  // different panel's palette.
+  assert.deepEqual([...HEATMAP_RAMP.dark], ['#151b23', '#033a16', '#196c2e', '#2ea043', '#56d364'])
+  assert.deepEqual([...HEATMAP_RAMP.light], ['#eff2f5', '#aceebb', '#4ac26b', '#2da44e', '#116329'])
+  for (const step of HEATMAP_RAMP.dark.slice(1)) {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(step.slice(i, i + 2), 16))
+    assert.ok(g > r && g > b, `${step} must read as green`)
+  }
+})
+
+check('the CSS carries the sampled ramp into every step', () => {
+  for (const step of HEATMAP_RAMP.dark) assert.ok(PANEL_CSS.includes(step), `the ramp step ${step} must reach the CSS`)
+  for (let level = 0; level <= 4; level++) {
+    assert.ok(PANEL_CSS.includes(`--tdd-ramp-${level}:`), `ramp step ${level} must be declared`)
+  }
 })
 
 check('the footer reports insights and the most-used skills', () => {
@@ -393,7 +426,7 @@ check('the footer reports insights and the most-used skills', () => {
   ]) {
     assert.ok(text.includes(label), `missing insight: ${label}`)
   }
-  assert.ok(text.includes('high · 73% of requests'), 'the reasoning share must render')
+  assert.ok(text.includes('high · 73%'), 'the reasoning share must render')
   assert.ok(text.includes('$remotion-best-practices'), 'skills carry the $ prefix')
   assert.ok(text.includes('2 runs') && text.includes('1 run'), 'run counts must pluralize')
   assert.ok(!text.includes('1 runs'), 'a single run must not read "1 runs"')
