@@ -3,6 +3,23 @@
 Notable changes to `@etheslay/dsh-token-dashboard`. The version numbers are the
 published npm versions.
 
+## 0.1.2
+
+Documentation only — no functional change, `src/` is untouched.
+
+- The READMEs are rewritten in the shape the rest of this ecosystem uses:
+  badges, a one-line pitch, then install, features, screenshots, other install
+  routes, uninstall, troubleshooting and development, across eight emoji-headed
+  sections. Both files are 89 lines; they were 230 and 269. The install command
+  is still the first thing after the pitch.
+- The engineering notes that had accumulated in the READMEs moved to
+  `docs/design.md` — panel geometry and why a year is two six-month blocks, the
+  four host-side invariants, the Codex provenance tables, the four deliberate
+  deviations, and what each test suite covers. Nothing was deleted.
+- Cross-file links are absolute GitHub URLs: relative links render on GitHub but
+  resolve against npmjs.com on the package page, where they 404.
+- Both screenshots are embedded, so `docs/panel-light.png` joins `files`.
+
 ## 0.1.1
 
 Documentation, metadata and licence only — no functional change. `src/` and

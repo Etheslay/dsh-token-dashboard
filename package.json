@@ -1,6 +1,6 @@
 {
   "name": "@etheslay/dsh-token-dashboard",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Token-usage profile for DeepSeek Harness — a Codex-style usage panel inside Settings: lifetime tokens, a year of activity, cache hit rate and top models. · DSH 用量统计面板：在设置里查看累计 token、一年活动热力图、缓存命中率与最常用模型。",
   "keywords": [
     "dsh",
