@@ -47,6 +47,7 @@
     "cordis.patch.yml",
     "LICENSE",
     "NOTICE",
+    "CHANGELOG.md",
     "README.md",
     "README.en.md",
     "docs/panel-dark.png"

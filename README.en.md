@@ -2,22 +2,67 @@
 
 Token-usage profile panel for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) — a Codex-style usage report inside **Settings**.
 
-**English** | [中文](README.md)
+[中文](README.md) · [Changelog](CHANGELOG.md) · [MIT](LICENSE)
+
+[![npm version](https://img.shields.io/npm/v/@etheslay/dsh-token-dashboard)](https://www.npmjs.com/package/@etheslay/dsh-token-dashboard)
+[![npm downloads](https://img.shields.io/npm/dm/@etheslay/dsh-token-dashboard)](https://www.npmjs.com/package/@etheslay/dsh-token-dashboard)
 
 ## Install
 
-```sh
-dsh plugin add @etheslay/dsh-token-dashboard
+### Ask an agent to install it (recommended)
+
+Send this to any agent that can run terminal commands, replacing `desktop` with
+your actual profile:
+
+```text
+Install the DSH plugin @etheslay/dsh-token-dashboard into my desktop profile by running:
+  dsh plugin --profile desktop add @etheslay/dsh-token-dashboard@latest --registry=https://registry.npmjs.org/
+Then run dsh --profile desktop --dump-config, confirm the configuration includes
+dsh-token-dashboard, and tell me how to reload DSH and where to find the panel.
 ```
 
-Then open **Settings → Usage**.
+### Install it yourself
 
-npm page: <https://www.npmjs.com/package/@etheslay/dsh-token-dashboard> — version, publish date and file list live there.
+```powershell
+dsh plugin --profile desktop add @etheslay/dsh-token-dashboard@latest --registry=https://registry.npmjs.org/
+dsh --profile desktop --dump-config
+```
 
-- **By hand**: `npm install @etheslay/dsh-token-dashboard`, then list the package under `dsh.profile.bundles` in the profile's `package.json`
-- **From source**: clone this repo, then `npm install && npm run build && npm run refresh:profile` (see [Develop](#develop))
+Restart DSH, hard-refresh the browser, then open **Settings → Usage**.
+
+Three things worth knowing up front:
+
+- **`--profile` is required** — the command errors without it. Use `desktop` for the desktop app and `web` for `dsh web`. The desktop profile has to exist already (open DSH once), and DSH must be **fully quit** before you run the command.
+- **Pass `--registry` explicitly.** The default registry in mainland China is npmmirror, which syncs newly published scoped packages with a delay — leaving the flag out can 404 or install an older version.
+- **The plugin market is the other route**: search and install from **Plugin Market** in Settings, which maintains `dsh.profile.bundles` for you.
+
+Without the CLI: `npm install @etheslay/dsh-token-dashboard`, then list the package under `dsh.profile.bundles` in the profile's `package.json`. **Both steps are needed** — a name declared in `bundles` but not installed makes DSH fail to start next time.
+
+Installing from source (for working on the code) is under [Develop](#develop).
 
 Requires DSH 0.2.x and Node ≥ 22.18 (see [Compatibility](#compatibility)).
+
+## Updates
+
+Run the same `add` command again (`@latest` picks up the new version), then
+restart DSH.
+
+For a source install, use `npm run build && npm run refresh:profile`.
+
+## Verifying the install
+
+```powershell
+dsh --profile desktop --dump-config     # the config tree should list dsh-token-dashboard
+```
+
+The Host half also answers a read-only probe (substitute your DSH port):
+
+```text
+http://127.0.0.1:<port>/dsh-token-dashboard/api/health
+```
+
+`{"ok":true,"home":"~/.dsh","timeZone":"…"}` means the Host half is mounted; the
+panel itself is under **Settings → Usage**.
 
 ![Usage panel](docs/panel-dark.png)
 
@@ -168,7 +213,7 @@ import type { UsageSnapshot, StatsQuery } from '@etheslay/dsh-token-dashboard'
 
 **A day is a day, not a session.** `Peak tokens` is the maximum over the *aggregated* day buckets. Reading each session's own busiest day instead under-reported the peak by 53% here, because two sessions had run on the same date.
 
-### Updating
+### The two halves do not reload together
 
 The two halves do not reload together. The module system hot-swaps the browser
 bundle, but the Host half is a cached ES module that only a DSH restart replaces.

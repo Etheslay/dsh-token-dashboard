@@ -51,6 +51,27 @@ check('both languages exist and package.json ships both', () => {
   assert.ok(!pkg.files.includes('README.zh.md'), 'the old README.zh.md name must not linger in `files`')
 })
 
+check('everything the READMEs point a reader at is shipped', () => {
+  // An image the READMEs embed but the tarball omits renders as a broken picture
+  // on the package page — which is exactly how `docs/panel-dark.png` was missing
+  // until it was added to `files`. Licence, notice and changelog are held to the
+  // same rule because the READMEs name them as the authoritative copies.
+  // Development-only paths (tools/, scripts/, tests/) are deliberately not
+  // shipped, so only the embedded images are derived from the text.
+  const pkg = JSON.parse(read('package.json'))
+  const shipped = new Set(pkg.files)
+  const required = ['LICENSE', 'NOTICE', 'CHANGELOG.md']
+  for (const text of [defaultText, otherText]) {
+    for (const match of text.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g)) {
+      const target = match[1]
+      if (!/^https?:/.test(target)) required.push(target)
+    }
+  }
+  for (const file of required) {
+    assert.ok(shipped.has(file), `\`files\` must ship ${file}; the READMEs reference it`)
+  }
+})
+
 check('the default README is the Chinese one', () => {
   // GitHub and npm render `README.md`; that is the file a visitor lands on, and
   // the project's default reader is Chinese. Prose language is measured by CJK

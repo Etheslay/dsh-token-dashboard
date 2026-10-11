@@ -2,22 +2,64 @@
 
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的用量统计面板 —— 在**设置**里放一份 Codex 风格的 token 用量报告。
 
-[English](README.en.md) | **中文**
+[English](README.en.md) · [更新日志](CHANGELOG.md) · [MIT](LICENSE)
+
+[![npm version](https://img.shields.io/npm/v/@etheslay/dsh-token-dashboard)](https://www.npmjs.com/package/@etheslay/dsh-token-dashboard)
+[![npm downloads](https://img.shields.io/npm/dm/@etheslay/dsh-token-dashboard)](https://www.npmjs.com/package/@etheslay/dsh-token-dashboard)
 
 ## 安装
 
-```sh
-dsh plugin add @etheslay/dsh-token-dashboard
+### 让 agent 帮你装（推荐）
+
+把下面这段发给能执行终端命令的 agent，把 `desktop` 换成你实际在用的 profile：
+
+```text
+把 DSH 插件 @etheslay/dsh-token-dashboard 装进我的 desktop profile：运行
+  dsh plugin --profile desktop add @etheslay/dsh-token-dashboard@latest --registry=https://registry.npmjs.org/
+然后运行 dsh --profile desktop --dump-config，确认配置里出现了 dsh-token-dashboard，
+最后告诉我怎么重新加载 DSH、以及去哪里看这个面板。
 ```
 
-装好后打开 **设置 → 用量**。
+### 自己装
 
-npm 页面：<https://www.npmjs.com/package/@etheslay/dsh-token-dashboard>（版本、发布时间、文件清单都在那里）
+```powershell
+dsh plugin --profile desktop add @etheslay/dsh-token-dashboard@latest --registry=https://registry.npmjs.org/
+dsh --profile desktop --dump-config
+```
 
-- **手动安装**：`npm install @etheslay/dsh-token-dashboard`，再把包名登记进该 profile `package.json` 的 `dsh.profile.bundles`
-- **从源码**：克隆本仓库后 `npm install && npm run build`，再 `npm run refresh:profile`（见[开发](#开发)）
+重启 DSH、硬刷新浏览器，然后打开 **设置 → 用量**。
+
+三点值得先说清楚：
+
+- **`--profile` 是必填的** —— 不加直接报错。桌面应用填 `desktop`，`dsh web` 填 `web`。桌面版需要先打开过一次 DSH 把 profile 初始化好，并且**完全退出 DSH** 之后再运行命令。
+- **`--registry` 建议显式写上**：国内默认走 npmmirror，新发布的 scoped 包在镜像上有同步延迟，省掉它可能报 404 或装到旧版。
+- **插件市场是另一条路**：设置在 **插件市场** 里搜索安装，市场会替你维护 `dsh.profile.bundles`。
+
+不用 CLI 的话：`npm install @etheslay/dsh-token-dashboard`，再把包名登记进该 profile `package.json` 的 `dsh.profile.bundles`。**两件事都要做** —— 只在 bundles 里声明而实际没装，会让 DSH 下次启动失败。
+
+从源码装（要改代码的人）见[开发](#开发)。
 
 要求 DSH 0.2.x 与 Node ≥ 22.18（见[兼容性](#兼容性)）。
+
+## 更新
+
+把上面那条 `add` 命令原样再跑一次即可（`@latest` 会取到新版本），然后重启 DSH。
+
+从源码装的用 `npm run build && npm run refresh:profile`。
+
+## 验证安装
+
+```powershell
+dsh --profile desktop --dump-config     # 配置树里应当出现 dsh-token-dashboard
+```
+
+宿主侧的只读探活路由（把端口换成你 DSH 的端口）：
+
+```text
+http://127.0.0.1:<端口>/dsh-token-dashboard/api/health
+```
+
+返回 `{"ok":true,"home":"~/.dsh","timeZone":"…"}` 就说明宿主半侧挂上了；页面本身在 **设置 → 用量**。
 
 ![用量面板](docs/panel-dark.png)
 
@@ -134,7 +176,7 @@ import type { UsageSnapshot, StatsQuery } from '@etheslay/dsh-token-dashboard'
 
 **一天是一天，不是一个会话。** `Token 使用峰值` 取的是**聚合后**每日桶的最大值。改成读各会话自己最忙的那天，在这台机器上会少报 53% —— 因为有一天有两个会话在跑。
 
-### 更新时
+### 两侧不会一起重载
 
 两侧不会一起重载。模块系统会热替换浏览器包，但宿主半侧是 Node 进程里被缓存的 ES
 模块，只有重启 DSH 才会换掉。浏览器侧一旦读到旧宿主发来的快照，会直接提示
