@@ -1,53 +1,39 @@
 /**
  * The usage panel.
  *
- * The shape is Codex's `/status` card: a two-column label/value list with a
- * dim label column, a blank-line section break, `% left` phrasing with zero
- * decimals, and the 20-cell `[███░░░]` bar. What changes is the content — DSH
- * has no provider rate-limit windows, credits, or plan, so those rows are gone.
- * The bar is kept, because context occupancy is a genuine 0-100% remaining
- * quantity and is exactly what the bar was built for.
+ * Layout is Codex's analytics **Overview** profile report, top to bottom:
  *
- * The big-numbers block and the activity chart are Codex's analytics Overview
- * (`summary_panel.rs`), whose five headline fields — `Lifetime tokens`,
- * `Peak tokens`, `Longest chat`, `Current streak`, `Longest streak` — every one
- * of them derivable from a DSH session log.
+ *   1. a centred identity block — avatar, display name, handle;
+ *   2. a five-cell bar of all-time headline figures;
+ *   3. `Token activity`, a year-long contribution heatmap with a
+ *      daily / weekly / cumulative switch;
+ *   4. a two-column footer of `Insights` and the most-used list.
+ *
+ * The numbers are localized, which matters more than it sounds: a Chinese UI
+ * reads `3.7亿` and `5317.1万`, not `370M` and `53.17M`, and a duration is
+ * `46分59秒`, not `46m 59s`. {@link localeCompact} and {@link localeDuration}
+ * own that split so the layout never has to care.
  *
  * @module dsh-token-dashboard/client/panel
  */
 import { createElement, useEffect, useMemo, useState, type ReactNode } from 'react'
-import {
-  barGlyph,
-  compactAmount,
-  countValue,
-  formatAbsoluteTime,
-  formatDuration,
-  formatLimitSummary,
-  formatPercent,
-  formatTokensCompact,
-  formatWithSeparators,
-  percentOfContextWindowRemaining,
-  renderLimitProgressBar,
-  MISSING,
-} from '../shared/format.ts'
-import type { RangeKind, SessionRow, UsageSnapshot } from '../shared/types.ts'
-import { RANGES, browserTimeZone, currentSessionId, fetchStats } from './api.ts'
+import { formatAbsoluteTime, localeCompact, localeCount, localeDuration } from '../shared/format.ts'
+import type { DayUsage, Share, UsageSnapshot } from '../shared/types.ts'
+import { browserTimeZone, currentSessionId, fetchStats } from './api.ts'
 
 /** Translate a key with `{name}` placeholder substitution. */
 export type Translate = (key: string, params?: Record<string, string | number>) => string
+
+/** How the heatmap aggregates each cell. */
+export type HeatMode = 'daily' | 'weekly' | 'cumulative'
+
+/** The heatmap modes, in the order the switch shows them. */
+export const HEAT_MODES: readonly HeatMode[] = ['daily', 'weekly', 'cumulative']
 
 /** Props the `settings.section` registration injects. */
 export interface UsageSectionProps {
   /** Translator bound to this plugin's locale namespace. */
   t?: Translate
-}
-
-/** One row of the Codex label/value card. */
-interface CardRow {
-  label: string
-  value: ReactNode
-  /** Dim parenthetical appended after the value, Codex's `(…)` convention. */
-  detail?: ReactNode
 }
 
 /** Substitute `{name}` placeholders. */
@@ -58,137 +44,213 @@ function interpolate(template: string, params?: Record<string, string | number>)
   )
 }
 
-/** Build a translator from a dictionary, falling back to the key itself. */
+/** Build a translator from a dictionary, falling back to a second one. */
 export function makeTranslate(dict: Record<string, string>, fallback: Record<string, string>): Translate {
   return (key, params) => interpolate(dict[key] ?? fallback[key] ?? key, params)
 }
 
-/** Signed percentage change, or `undefined` when there is no baseline. */
-function percentChange(current: number, previous: number): number | undefined {
-  if (previous <= 0) return undefined
-  return ((current - previous) / previous) * 100
-}
-
-/** `+18.4%` / `-3%`, always signed. */
-function signedPercent(value: number): string {
-  const rounded = Math.abs(value) >= 10 ? value.toFixed(0) : value.toFixed(1)
-  return `${value > 0 ? '+' : ''}${rounded}%`
-}
-
-/** The Codex token-usage value: `{total} total ` plus a dim `({i} input + {o} output)`. */
-function tokenUsageParts(
-  t: Translate,
-  buckets: { uncachedInputTokens: number; outputTokens: number; totalTokens: number },
-): { value: ReactNode; detail: ReactNode } {
-  const blended = buckets.uncachedInputTokens + buckets.outputTokens
-  return {
-    value: interpolate(t('tokenUsageValue'), { total: formatTokensCompact(blended) }),
-    detail: interpolate(t('tokenUsageDetail'), {
-      input: formatTokensCompact(buckets.uncachedInputTokens),
-      output: formatTokensCompact(buckets.outputTokens),
-    }),
-  }
-}
-
-/** Format a `YYYY-MM-DD` key as a short local date, without shifting the day. */
-function shortDay(key: string, locale: string | undefined): string {
+/** Shift a `YYYY-MM-DD` key by whole days through UTC, so DST cannot skip one. */
+function shiftDay(key: string, days: number): string {
   const [year, month, day] = key.split('-').map(Number) as [number, number, number]
-  return new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric' }).format(
+  return new Date(Date.UTC(year, month - 1, day) + days * 86_400_000).toISOString().slice(0, 10)
+}
+
+/** Day of week for a key, `0` = Sunday. */
+function weekdayOf(key: string): number {
+  const [year, month, day] = key.split('-').map(Number) as [number, number, number]
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay()
+}
+
+/** Format a day key without letting a local time zone shift it. */
+function dayLabel(key: string, locale: string | undefined, options: Intl.DateTimeFormatOptions): string {
+  const [year, month, day] = key.split('-').map(Number) as [number, number, number]
+  return new Intl.DateTimeFormat(locale, { ...options, timeZone: 'UTC' }).format(
     new Date(Date.UTC(year, month - 1, day, 12)),
   )
+}
+
+/** One cell of the heatmap. */
+interface HeatCell {
+  /** Stable key: the day this cell represents. */
+  key: string
+  /** The day the cell is anchored on. */
+  date: string
+  /** The value the cell encodes under the active mode. */
+  value: number
+  /** Ramp step, `0`-`4`. */
+  level: number
+}
+
+/** Quartile thresholds over the non-zero values, so the ramp spreads usefully. */
+function quartiles(values: readonly number[]): [number, number, number] {
+  const sorted = values.filter((value) => value > 0).sort((a, b) => a - b)
+  if (sorted.length === 0) return [0, 0, 0]
+  const at = (fraction: number): number => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * fraction))]!
+  return [at(0.25), at(0.5), at(0.75)]
+}
+
+/** Map a value onto the five-step ramp. */
+function levelOf(value: number, thresholds: readonly [number, number, number]): number {
+  if (value <= 0) return 0
+  if (value <= thresholds[0]) return 1
+  if (value <= thresholds[1]) return 2
+  if (value <= thresholds[2]) return 3
+  return 4
+}
+
+/** The heatmap's built grid. */
+export interface HeatGrid {
+  /** Cells in column-major fill order. */
+  cells: HeatCell[]
+  /** One entry per column, labelled only where the month changes. */
+  months: Array<{ key: string; label: string }>
+}
+
+/**
+ * Build the heatmap's cell grid.
+ *
+ * Both ends are padded to whole weeks: the first column back to its Sunday and
+ * the last forward to its Saturday. The grid fills column-major over exactly
+ * seven rows, so an unpadded end would leave a short final column — harmless in
+ * CSS, but it makes the grid's shape depend on which weekday "today" happens to
+ * be. Cumulative padding carries the final total forward so the series stays
+ * monotonic.
+ * @param snapshot - The snapshot carrying the day buckets and window.
+ * @param mode - How each cell aggregates.
+ * @returns The cells plus the per-column month labels.
+ */
+export function buildHeatmap(snapshot: UsageSnapshot, mode: HeatMode): HeatGrid {
+  const byDate = new Map<string, DayUsage>()
+  for (const day of snapshot.days) byDate.set(day.date, day)
+
+  const from = shiftDay(snapshot.heatmap.from, -weekdayOf(snapshot.heatmap.from))
+  const to = snapshot.heatmap.to
+
+  const weekly = new Map<string, number>()
+  if (mode === 'weekly') {
+    for (const [date, day] of byDate) {
+      const week = shiftDay(date, -weekdayOf(date))
+      weekly.set(week, (weekly.get(week) ?? 0) + day.totalTokens)
+    }
+  }
+
+  const days: Array<{ date: string; value: number }> = []
+  let running = 0
+  let cursor = from
+  while (cursor <= to) {
+    const tokens = byDate.get(cursor)?.totalTokens ?? 0
+    running += tokens
+    const value = mode === 'weekly' ? (weekly.get(cursor) ?? 0) : mode === 'cumulative' ? running : tokens
+    days.push({ date: cursor, value })
+    cursor = shiftDay(cursor, 1)
+  }
+  while (days.length % 7 !== 0) {
+    days.push({ date: cursor, value: mode === 'cumulative' ? running : 0 })
+    cursor = shiftDay(cursor, 1)
+  }
+
+  const thresholds = quartiles(days.map((day) => day.value))
+  const cells: HeatCell[] = days.map((day) => ({
+    key: day.date,
+    date: day.date,
+    value: day.value,
+    level: levelOf(day.value, thresholds),
+  }))
+
+  const months: Array<{ key: string; label: string }> = []
+  for (let index = 0; index < cells.length; index += 7) {
+    months.push({ key: cells[index]!.date, label: '' })
+  }
+  return { cells, months }
+}
+
+/**
+ * Label the month columns, emitting a name only where the month changes.
+ *
+ * Codex's heatmap prints the month under the first column that belongs to it,
+ * which is what keeps a year readable without an axis.
+ * @param grid - The grid from {@link buildHeatmap}.
+ * @param locale - Locale for the month name.
+ * @returns The grid with labels filled in.
+ */
+export function labelMonths(grid: HeatGrid, locale?: string): HeatGrid {
+  let previousMonth: string | undefined
+  const months = grid.months.map((month) => {
+    const current = month.key.slice(0, 7)
+    const label = current === previousMonth ? '' : dayLabel(month.key, locale, { month: 'short' })
+    previousMonth = current
+    return { key: month.key, label }
+  })
+  return { ...grid, months }
 }
 
 /** Props for {@link UsageView}, the pure presentation component. */
 export interface UsageViewProps {
   /** Translator bound to this plugin's locale namespace. */
   t: Translate
-  /** Locale used for date and number formatting. */
+  /** Locale used for number and date formatting. */
   locale?: string
   /** The snapshot to render; `undefined` while the first read is in flight. */
   snapshot?: UsageSnapshot
-  /** Selected window. */
-  range: RangeKind
-  /** Called when the user picks another window. */
-  onRangeChange: (range: RangeKind) => void
-  /** Called when the user asks for a fresh read. */
-  onRefresh: () => void
   /** Whether a read is in flight. */
   loading: boolean
   /** Failure text from the last read, when it failed. */
   error?: string
+  /** Whether the failure is a Host half older than this browser half. */
+  staleHost?: boolean
+  /** Called when the user asks for a fresh read. */
+  onRefresh: () => void
 }
 
 /**
  * Render the usage page from an already-computed snapshot.
  *
  * Split from {@link UsageSection} on purpose: everything Codex-shaped lives
- * here and takes its data as a prop, so the formatting rules can be rendered and
- * asserted without a Host, a network, or a browser.
- * @param props - Snapshot plus control callbacks.
+ * here and takes its data as a prop, so the layout can be rendered and asserted
+ * without a Host, a network, or a browser.
+ * @param props - Snapshot plus the refresh callback.
  * @returns The panel element.
  */
 export function UsageView(props: UsageViewProps): ReactNode {
-  const { t, snapshot, range, loading, error, locale } = props
-  // Which day the activity chart calls out. Local to the view, so hovering a
-  // bar never refetches anything.
-  const [activeDay, setActiveDay] = useState<string | undefined>(undefined)
+  const { t, snapshot, loading, error, staleHost, locale } = props
+  const [mode, setMode] = useState<HeatMode>('daily')
+  const [hovered, setHovered] = useState<string | undefined>(undefined)
 
   const header = createElement(
     'header',
     { className: 'tdd-head' },
     createElement(
       'div',
-      { className: 'tdd-headtext' },
+      null,
       createElement('h2', { className: 'tdd-title' }, t('title')),
-      createElement('p', { className: 'tdd-sub' }, t('subtitle')),
-    ),
-    createElement(
-      'div',
-      { className: 'tdd-controls' },
-      createElement(
-        'div',
-        { className: 'tdd-ranges', role: 'group' },
-        ...RANGES.map((kind) =>
-          createElement(
-            'button',
-            {
-              key: kind,
-              type: 'button',
-              className: 'tdd-range',
-              'aria-pressed': kind === range,
-              onClick: () => {
-                props.onRangeChange(kind)
-              },
-            },
-            t(`range${kind === 'today' ? 'Today' : kind === '7d' ? '7d' : kind === '30d' ? '30d' : 'All'}`),
-          ),
-        ),
-      ),
-      createElement(
-        'button',
-        {
-          type: 'button',
-          className: 'tdd-btn',
-          disabled: loading,
-          onClick: () => {
-            props.onRefresh()
-          },
-        },
-        loading ? t('refreshing') : t('refresh'),
-      ),
       snapshot === undefined
         ? null
         : createElement(
-            'span',
+            'div',
             { className: 'tdd-stamp' },
             `${interpolate(t('updatedAt'), {
               time: formatAbsoluteTime(new Date(snapshot.generatedAt), new Date(), locale),
-            })} · ${interpolate(t('scanTook'), { ms: String(snapshot.elapsedMs) })}`,
+            })} \u00b7 ${interpolate(t('scanTook'), { ms: String(snapshot.elapsedMs) })}`,
           ),
+    ),
+    createElement(
+      'button',
+      {
+        type: 'button',
+        className: 'tdd-btn',
+        disabled: loading,
+        onClick: () => {
+          props.onRefresh()
+        },
+      },
+      loading ? t('refreshing') : t('refresh'),
     ),
   )
 
   if (error !== undefined && snapshot === undefined) {
+    // A Host half older than this browser half is not a failure the user can
+    // retry away — it needs a DSH restart — so it says so instead of offering
+    // a button that cannot help.
     return createElement(
       'div',
       { className: 'tdd' },
@@ -196,21 +258,9 @@ export function UsageView(props: UsageViewProps): ReactNode {
       createElement(
         'div',
         { className: 'tdd-error' },
-        createElement('div', { className: 'tdd-error-title' }, t('errTitle')),
-        createElement('div', { className: 'tdd-sub' }, error),
-        createElement('div', { className: 'tdd-sub' }, t('errHint')),
-        createElement(
-          'button',
-          {
-            type: 'button',
-            className: 'tdd-btn',
-            style: { marginTop: '10px' },
-            onClick: () => {
-              props.onRefresh()
-            },
-          },
-          t('retry'),
-        ),
+        createElement('div', { className: 'tdd-error-title' }, staleHost === true ? t('staleHostTitle') : t('errTitle')),
+        createElement('div', { className: 'tdd-sub' }, staleHost === true ? t('staleHostHint') : error),
+        staleHost === true ? null : createElement('div', { className: 'tdd-sub' }, t('errHint')),
       ),
     )
   }
@@ -220,7 +270,7 @@ export function UsageView(props: UsageViewProps): ReactNode {
       'div',
       { className: 'tdd' },
       header,
-      createElement('div', { className: 'tdd-skeleton' }, t('loading')),
+      createElement('div', { className: 'tdd-skeleton' }, t('refreshing')),
     )
   }
 
@@ -228,22 +278,262 @@ export function UsageView(props: UsageViewProps): ReactNode {
     'div',
     { className: 'tdd' },
     header,
-    createElement(Card, { snapshot, t }),
-    createElement(Figures, { snapshot, t }),
-    createElement(Activity, { snapshot, t, locale, activeDay, setActiveDay }),
-    createElement(Breakdowns, { snapshot, t }),
-    createElement(RecentSessions, { snapshot, t, locale }),
+    createElement(Identity, { identity: snapshot.identity }),
+    createElement(StatBar, { snapshot, t, locale }),
+    createElement(Activity, { snapshot, t, locale, mode, setMode, hovered, setHovered }),
+    createElement(Insights, { snapshot, t, locale }),
     snapshot.warnings.length === 0
       ? null
       : createElement(
           'div',
           { className: 'tdd-section' },
           createElement('div', { className: 'tdd-section-title' }, t('warningsTitle')),
-          ...snapshot.warnings.slice(0, 6).map((warning, index) =>
+          ...snapshot.warnings.slice(0, 4).map((warning, index) =>
             createElement('div', { className: 'tdd-warn', key: `${index}-${warning}` }, warning),
           ),
         ),
     error === undefined ? null : createElement('div', { className: 'tdd-warn' }, `${t('staleHint')} (${error})`),
+  )
+}
+
+/** The centred avatar / display name / handle block. */
+function Identity({ identity }: { identity: UsageSnapshot['identity'] }): ReactNode {
+  if (identity === undefined) return null
+  const initial = (identity.name ?? identity.handle ?? '').trim().slice(0, 1)
+  const avatar =
+    identity.avatarUrl === undefined
+      ? createElement('div', { className: 'tdd-avatar tdd-avatar-fallback' }, initial)
+      : createElement('img', {
+          className: 'tdd-avatar',
+          src: identity.avatarUrl,
+          alt: identity.name ?? 'avatar',
+          referrerPolicy: 'no-referrer',
+        })
+  return createElement(
+    'div',
+    { className: 'tdd-identity' },
+    avatar,
+    identity.name === undefined ? null : createElement('div', { className: 'tdd-name' }, identity.name),
+    identity.handle === undefined ? null : createElement('div', { className: 'tdd-handle' }, identity.handle),
+  )
+}
+
+/** The five-cell all-time headline bar. */
+function StatBar({ snapshot, t, locale }: { snapshot: UsageSnapshot; t: Translate; locale?: string }): ReactNode {
+  const { profile } = snapshot
+  const dayCount = (n: number): string => interpolate(t(n === 1 ? 'dayOne' : 'days'), { n: localeCount(n, locale) })
+  const stats: Array<{ value: string; label: string }> = [
+    { value: localeCompact(profile.lifetimeTokens, locale), label: t('statLifetime') },
+    { value: localeCompact(profile.peakDailyTokens, locale), label: t('statPeak') },
+    { value: localeDuration(profile.longestTurnSeconds, locale), label: t('statLongest') },
+    { value: dayCount(profile.longestStreakDays), label: t('statLongestStreak') },
+    { value: dayCount(profile.currentStreakDays), label: t('statCurrentStreak') },
+  ]
+  return createElement(
+    'div',
+    { className: 'tdd-stats' },
+    ...stats.map((stat) =>
+      createElement(
+        'div',
+        { className: 'tdd-stat', key: stat.label },
+        createElement('div', { className: 'tdd-stat-value' }, stat.value),
+        createElement('div', { className: 'tdd-stat-label' }, stat.label),
+      ),
+    ),
+  )
+}
+
+/** The `Token activity` heatmap and its daily / weekly / cumulative switch. */
+function Activity({
+  snapshot,
+  t,
+  locale,
+  mode,
+  setMode,
+  hovered,
+  setHovered,
+}: {
+  snapshot: UsageSnapshot
+  t: Translate
+  locale?: string
+  mode: HeatMode
+  setMode: (mode: HeatMode) => void
+  hovered: string | undefined
+  setHovered: (key: string | undefined) => void
+}): ReactNode {
+  const grid = useMemo(() => labelMonths(buildHeatmap(snapshot, mode), locale), [snapshot, mode, locale])
+  const active = grid.cells.find((cell) => cell.key === hovered)
+
+  return createElement(
+    'section',
+    { className: 'tdd-section' },
+    createElement(
+      'div',
+      { className: 'tdd-section-head' },
+      createElement('div', { className: 'tdd-section-title' }, t('activity')),
+      createElement(
+        'div',
+        { className: 'tdd-tabs', role: 'group' },
+        ...HEAT_MODES.map((candidate) =>
+          createElement(
+            'button',
+            {
+              key: candidate,
+              type: 'button',
+              className: 'tdd-tab',
+              'aria-pressed': candidate === mode,
+              onClick: () => {
+                setMode(candidate)
+              },
+            },
+            t(candidate === 'daily' ? 'modeDaily' : candidate === 'weekly' ? 'modeWeekly' : 'modeCumulative'),
+          ),
+        ),
+      ),
+    ),
+    createElement(
+      'div',
+      { className: 'tdd-heat' },
+      createElement(
+        'div',
+        { className: 'tdd-heat-scroll' },
+        createElement(
+          'div',
+          { className: 'tdd-heat-grid', role: 'img', 'aria-label': t('activity') },
+          ...grid.cells.map((cell) =>
+            createElement('div', {
+              key: cell.key,
+              className: 'tdd-cell',
+              'data-level': cell.level,
+              title: interpolate(t('cellTooltip'), {
+                date: dayLabel(cell.date, locale, { year: 'numeric', month: 'short', day: 'numeric' }),
+                value: localeCount(cell.value, locale),
+              }),
+              onMouseEnter: () => {
+                setHovered(cell.key)
+              },
+              onMouseLeave: () => {
+                setHovered(undefined)
+              },
+            }),
+          ),
+        ),
+      ),
+      createElement(
+        'div',
+        { className: 'tdd-heat-scroll' },
+        createElement(
+          'div',
+          { className: 'tdd-heat-months', 'aria-hidden': 'true' },
+          ...grid.months.map((month) => createElement('span', { key: month.key }, month.label)),
+        ),
+      ),
+      createElement(
+        'div',
+        { className: 'tdd-heat-foot' },
+        createElement(
+          'span',
+          null,
+          active === undefined
+            ? ''
+            : `${dayLabel(active.date, locale, { year: 'numeric', month: 'short', day: 'numeric' })} \u00b7 ${localeCount(active.value, locale)} tokens`,
+        ),
+        createElement(
+          'span',
+          { className: 'tdd-heat-legend' },
+          createElement('span', null, t('less')),
+          ...[0, 1, 2, 3, 4].map((level) =>
+            createElement('span', { key: level, className: 'tdd-cell', 'data-level': level }),
+          ),
+          createElement('span', null, t('more')),
+        ),
+      ),
+    ),
+  )
+}
+
+/** One `label  value` row. */
+function Row({ name, value }: { name: string; value: string }): ReactNode {
+  return createElement(
+    'div',
+    { className: 'tdd-row' },
+    createElement('div', { className: 'tdd-row-name', title: name }, name),
+    createElement('div', { className: 'tdd-row-value' }, value),
+  )
+}
+
+/** The two-column `Insights` / most-used footer. */
+function Insights({ snapshot, t, locale }: { snapshot: UsageSnapshot; t: Translate; locale?: string }): ReactNode {
+  const { insights, profile, cache } = snapshot
+  const topReasoning = insights.reasoning[0]
+  const topModel = insights.models[0]
+  /** A reasoning share is a share of outgoing requests. */
+  const requestShare = (share: Share): string =>
+    interpolate(t('shareRequests'), { value: share.label, pct: share.share.toFixed(0) })
+  /** A model share is a share of tokens, which is what a usage panel ranks on. */
+  const tokenShare = (share: Share): string =>
+    interpolate(t('shareTokens'), { value: share.label, pct: share.share.toFixed(0) })
+
+  const insightRows: ReactNode[] = [
+    createElement(Row, {
+      key: 'reasoning',
+      name: t('statReasoning'),
+      value: topReasoning === undefined ? t('none') : requestShare(topReasoning),
+    }),
+    createElement(Row, {
+      key: 'model',
+      name: t('statModels'),
+      value: topModel === undefined ? t('none') : tokenShare(topModel),
+    }),
+    createElement(Row, {
+      key: 'explored',
+      name: t('statSkillsExplored'),
+      value: localeCount(insights.skillsExplored, locale),
+    }),
+    createElement(Row, {
+      key: 'skills',
+      name: t('statSkillsTotal'),
+      value: localeCount(insights.skillsTotal, locale),
+    }),
+    createElement(Row, { key: 'chats', name: t('statChats'), value: localeCount(profile.sessions, locale) }),
+    createElement(Row, { key: 'turns', name: t('statTurns'), value: localeCount(profile.turns, locale) }),
+    ...(cache.hitRate === undefined
+      ? []
+      : [
+          createElement(Row, {
+            key: 'cache',
+            name: t('statCache'),
+            value: `${cache.hitRate.toFixed(1)}%`,
+          }),
+        ]),
+  ]
+
+  const usedRows: ReactNode[] =
+    insights.topSkills.length === 0
+      ? [createElement('div', { className: 'tdd-empty', key: 'empty' }, t('none'))]
+      : insights.topSkills.slice(0, 8).map((skill) =>
+          createElement(Row, {
+            key: skill.name,
+            name: `$${skill.name}`,
+            value: interpolate(t(skill.runs === 1 ? 'runOne' : 'runs'), { n: localeCount(skill.runs, locale) }),
+          }),
+        )
+
+  return createElement(
+    'div',
+    { className: 'tdd-cols' },
+    createElement(
+      'div',
+      { className: 'tdd-col' },
+      createElement('div', { className: 'tdd-col-title' }, t('insights')),
+      createElement('div', { className: 'tdd-rows' }, ...insightRows),
+    ),
+    createElement(
+      'div',
+      { className: 'tdd-col' },
+      createElement('div', { className: 'tdd-col-title' }, t('mostUsed')),
+      createElement('div', { className: 'tdd-rows' }, ...usedRows),
+    ),
   )
 }
 
@@ -266,9 +556,9 @@ export function UsageSection(props: UsageSectionOptions): ReactNode {
     [props.t, props.dictionary, props.fallbackDictionary],
   )
 
-  const [range, setRange] = useState<RangeKind>('30d')
   const [snapshot, setSnapshot] = useState<UsageSnapshot | undefined>(undefined)
   const [error, setError] = useState<string | undefined>(undefined)
+  const [staleHost, setStaleHost] = useState(false)
   const [loading, setLoading] = useState(true)
   const [reloadToken, setReloadToken] = useState(0)
   const locale = typeof navigator === 'undefined' ? undefined : navigator.language
@@ -280,14 +570,16 @@ export function UsageSection(props: UsageSectionOptions): ReactNode {
     const controller = new AbortController()
     let cancelled = false
     setLoading(true)
-    void fetchStats(range, timeZone, sessionId, controller.signal)
+    void fetchStats(timeZone, sessionId, controller.signal)
       .then((result) => {
         if (cancelled) return
         if (result.ok) {
           setSnapshot(result.snapshot)
           setError(undefined)
+          setStaleHost(false)
         } else {
           setError(result.error)
+          setStaleHost(result.staleHost === true)
         }
       })
       .catch(() => {
@@ -300,362 +592,17 @@ export function UsageSection(props: UsageSectionOptions): ReactNode {
       cancelled = true
       controller.abort()
     }
-  }, [range, timeZone, sessionId, reloadToken])
+  }, [timeZone, sessionId, reloadToken])
 
   return createElement(UsageView, {
     t,
     locale,
     snapshot,
-    range,
     loading,
     error,
-    onRangeChange: setRange,
+    staleHost,
     onRefresh: () => {
       setReloadToken((token) => token + 1)
     },
   })
 }
-
-/** The dominant model route in the window, if any. */
-function dominantRoute(snapshot: UsageSnapshot): { provider: string; model: string } | undefined {
-  const top = snapshot.models[0]
-  return top === undefined ? undefined : { provider: top.provider, model: top.model }
-}
-
-/** The session whose context occupancy the card reports. */
-function contextSession(snapshot: UsageSnapshot): SessionRow | undefined {
-  return snapshot.sessions.find((session) => session.current === true && session.context !== undefined)
-    ?? snapshot.sessions.find((session) => session.context !== undefined)
-}
-
-/** The Codex `/status` label/value card. */
-function Card({ snapshot, t }: { snapshot: UsageSnapshot; t: Translate }): ReactNode {
-  const rows: CardRow[] = []
-  const route = dominantRoute(snapshot)
-  const topWorkspace = snapshot.workspaces[0]
-
-  rows.push({ label: t('model'), value: route?.model ?? MISSING })
-  rows.push({ label: t('modelProvider'), value: route?.provider ?? MISSING })
-  if (snapshot.agentPreset !== undefined) rows.push({ label: t('preset'), value: snapshot.agentPreset })
-  rows.push({
-    label: t('directory'),
-    value: topWorkspace?.cwd || MISSING,
-    detail:
-      snapshot.workspaces.length > 1
-        ? interpolate(t('moreDirectories'), { n: countValue(snapshot.workspaces.length - 1) })
-        : undefined,
-  })
-  rows.push({
-    label: t('session'),
-    value: `${countValue(snapshot.totals.sessions)} · ${countValue(snapshot.totals.turns)} ${t('turnsCount').toLowerCase()}`,
-  })
-
-  const usage = tokenUsageParts(t, snapshot.totals)
-  rows.push({ label: t('tokenUsage'), value: usage.value, detail: usage.detail })
-
-  const withContext = contextSession(snapshot)
-  if (withContext?.context?.window !== undefined) {
-    const { tokensInContext, window: contextWindow } = withContext.context
-    const percent = percentOfContextWindowRemaining(tokensInContext, contextWindow)
-    rows.push({
-      label: t('contextWindow'),
-      value: createElement(
-        'span',
-        { className: 'tdd-mono' },
-        `${renderLimitProgressBar(percent)} ${formatLimitSummary(percent)}`,
-      ),
-      detail: `(${formatTokensCompact(tokensInContext)} used / ${formatTokensCompact(contextWindow)})`,
-    })
-  } else {
-    rows.push({ label: t('contextWindow'), value: createElement('span', { className: 'tdd-dim' }, t('noContext')) })
-  }
-
-  if (snapshot.cache.hitRate !== undefined) {
-    const percent = Math.max(0, Math.min(100, snapshot.cache.hitRate))
-    rows.push({
-      label: t('cache'),
-      value: createElement(
-        'span',
-        { className: 'tdd-mono' },
-        `${renderLimitProgressBar(percent)} ${percent.toFixed(0)}% hit`,
-      ),
-      detail: interpolate(t('cacheDetail'), {
-        read: formatTokensCompact(snapshot.cache.readTokens),
-        prompt: formatTokensCompact(snapshot.cache.promptTokens),
-      }),
-    })
-  }
-
-  if (snapshot.totals.reasoningTokens > 0) {
-    rows.push({
-      label: t('reasoning'),
-      value: `${formatTokensCompact(snapshot.totals.reasoningTokens)} tokens`,
-      detail: formatPercent((snapshot.totals.reasoningTokens / Math.max(1, snapshot.totals.outputTokens)) * 100),
-    })
-  }
-
-  // A comparison against a zero baseline says nothing, so the row is omitted
-  // rather than rendered as "— 0 vs previous".
-  if (snapshot.previous !== undefined && snapshot.previous.totalTokens > 0) {
-    const change = percentChange(snapshot.totals.totalTokens, snapshot.previous.totalTokens)
-    rows.push({
-      label: t('rangeOf'),
-      value:
-        change === undefined
-          ? MISSING
-          : createElement(
-              'span',
-              { className: change >= 0 ? 'tdd-accent' : 'tdd-dim' },
-              signedPercent(change),
-            ),
-      detail: interpolate(t('rangeCompare'), { delta: formatTokensCompact(snapshot.previous.totalTokens) }),
-    })
-  }
-
-  return createElement(
-    'div',
-    { className: 'tdd-card' },
-    ...rows.flatMap((row) => [
-      createElement('span', { className: 'tdd-label', key: `${row.label}-l` }, row.label),
-      createElement(
-        'span',
-        { className: 'tdd-value', key: `${row.label}-v` },
-        row.value,
-        row.detail === undefined ? null : createElement('span', { className: 'tdd-dim' }, ' ', row.detail),
-      ),
-    ]),
-  )
-}
-
-/** Codex's analytics headline row: five big numbers with captions. */
-function Figures({ snapshot, t }: { snapshot: UsageSnapshot; t: Translate }): ReactNode {
-  const { profile } = snapshot
-  /** `1 day` rather than `1 days`; other locales use the same key for both. */
-  const dayCount = (n: number): string => interpolate(t(n === 1 ? 'dayOne' : 'days'), { n: countValue(n) })
-  const figures: Array<{ value: string; label: string }> = [
-    { value: compactAmount(profile.lifetimeTokens), label: t('lifetimeTokens') },
-    { value: compactAmount(profile.peakDailyTokens), label: t('peakTokens') },
-    { value: formatDuration(profile.longestTurnSeconds), label: t('longestChat') },
-    { value: dayCount(profile.currentStreakDays), label: t('currentStreak') },
-    { value: dayCount(profile.longestStreakDays), label: t('longestStreak') },
-  ]
-  return createElement(
-    'div',
-    { className: 'tdd-figures' },
-    ...figures.map((figure) =>
-      createElement(
-        'div',
-        { className: 'tdd-figure', key: figure.label },
-        createElement('div', { className: 'tdd-figure-value' }, figure.value),
-        createElement('div', { className: 'tdd-figure-label' }, figure.label),
-      ),
-    ),
-  )
-}
-
-/** Codex's `Token activity` chart, drawn with the same glyph ramp. */
-function Activity({
-  snapshot,
-  t,
-  locale,
-  activeDay,
-  setActiveDay,
-}: {
-  snapshot: UsageSnapshot
-  t: Translate
-  locale?: string
-  activeDay: string | undefined
-  setActiveDay: (day: string | undefined) => void
-}): ReactNode {
-  const days = snapshot.days
-  const max = days.reduce((peak, day) => Math.max(peak, day.totalTokens), 0)
-
-  if (days.length === 0) {
-    return createElement(
-      'section',
-      { className: 'tdd-section' },
-      createElement('div', { className: 'tdd-section-title' }, t('activityTitle')),
-      createElement('div', { className: 'tdd-empty' }, t('activityEmpty')),
-    )
-  }
-
-  const selected = days.find((day) => day.date === activeDay) ?? days[days.length - 1]
-  const first = days[0]
-  const last = days[days.length - 1]
-
-  return createElement(
-    'section',
-    { className: 'tdd-section' },
-    createElement('div', { className: 'tdd-section-title' }, t('activityTitle')),
-    createElement('div', { className: 'tdd-section-note' }, interpolate(t('activitySince'), { n: countValue(days.length) })),
-    createElement(
-      'div',
-      { className: 'tdd-chart' },
-      createElement(
-        'div',
-        { className: 'tdd-chart-row', role: 'img' },
-        ...days.map((day) =>
-          createElement(
-            'button',
-            {
-              key: day.date,
-              type: 'button',
-              className: 'tdd-bar',
-              'data-active': day.date === selected?.date,
-              title: `${day.date} · ${formatWithSeparators(day.totalTokens, locale)} tokens`,
-              onMouseEnter: () => {
-                setActiveDay(day.date)
-              },
-              onFocus: () => {
-                setActiveDay(day.date)
-              },
-            },
-            barGlyph(day.totalTokens, max),
-          ),
-        ),
-      ),
-      // The baseline shares the bars' flex geometry so it lines up under them
-      // instead of running past the last column.
-      createElement(
-        'div',
-        { className: 'tdd-chart-row tdd-baseline', 'aria-hidden': 'true' },
-        ...days.map((day) => createElement('span', { className: 'tdd-axis', key: day.date }, '\u2500')),
-      ),
-      createElement(
-        'div',
-        { className: 'tdd-legend' },
-        createElement('span', null, t('activityLess')),
-        createElement('span', { className: 'tdd-mono', style: { color: 'var(--tdd-accent)' } }, '\u2581\u2583\u2585\u2587\u2588'),
-        createElement('span', null, t('activityMore')),
-        createElement(
-          'span',
-          { style: { marginLeft: '10px' } },
-          `${first === undefined ? '' : shortDay(first.date, locale)} \u2192 ${last === undefined ? '' : shortDay(last.date, locale)}`,
-        ),
-      ),
-      createElement(
-        'div',
-        { className: 'tdd-callout' },
-        selected === undefined
-          ? MISSING
-          : createElement(
-              'span',
-              null,
-              createElement('strong', null, shortDay(selected.date, locale)),
-              ` · ${formatWithSeparators(selected.totalTokens, locale)} tokens`,
-              createElement(
-                'span',
-                { className: 'tdd-dim' },
-                ` · ${countValue(selected.turns)} ${t('turnsCount').toLowerCase()} · ${countValue(selected.responses)} responses`,
-              ),
-            ),
-      ),
-    ),
-  )
-}
-
-/** Codex's `● {name} {pct}%` legend rows, for models and directories. */
-function Breakdowns({ snapshot, t }: { snapshot: UsageSnapshot; t: Translate }): ReactNode {
-  const total = Math.max(1, snapshot.totals.totalTokens)
-  const section = (title: string, rows: Array<{ key: string; name: string; sub: string; tokens: number }>): ReactNode =>
-    createElement(
-      'section',
-      { className: 'tdd-section', key: title },
-      createElement('div', { className: 'tdd-section-title' }, title),
-      createElement(
-        'div',
-        { className: 'tdd-legend-list' },
-        ...rows.map((row) =>
-          createElement(
-            'div',
-            { className: 'tdd-legend-row', key: row.key },
-            createElement(
-              'div',
-              { className: 'tdd-legend-name' },
-              createElement('span', { className: 'tdd-dot' }, '\u25CF'),
-              createElement('span', { title: row.name }, row.name),
-              createElement('span', { className: 'tdd-legend-sub' }, row.sub),
-            ),
-            createElement('div', { className: 'tdd-legend-pct' }, `${((row.tokens / total) * 100).toFixed(1)}%`),
-          ),
-        ),
-      ),
-    )
-
-  const models = snapshot.models.slice(0, 8).map((model) => ({
-    key: `${model.provider}/${model.model}`,
-    name: model.model,
-    sub: `${model.provider} · ${formatTokensCompact(model.totalTokens)} · ${countValue(model.responses)}`,
-    tokens: model.totalTokens,
-  }))
-  const workspaces = snapshot.workspaces.slice(0, 6).map((workspace) => ({
-    key: workspace.cwd,
-    name: workspace.name,
-    sub: `${formatTokensCompact(workspace.totalTokens)} · ${countValue(workspace.sessions)}`,
-    tokens: workspace.totalTokens,
-  }))
-
-  if (models.length === 0 && workspaces.length === 0) {
-    return createElement('div', { className: 'tdd-empty' }, t('breakdownEmpty'))
-  }
-  return createElement(
-    'div',
-    { className: 'tdd-block' },
-    models.length === 0 ? null : section(t('byModel'), models),
-    workspaces.length === 0 ? null : section(t('byWorkspace'), workspaces),
-  )
-}
-
-/** The recent-session table. */
-function RecentSessions({ snapshot, t, locale }: { snapshot: UsageSnapshot; t: Translate; locale?: string }): ReactNode {
-  // A session that recorded neither tokens nor turns carries no information
-  // worth a row; the store keeps plenty of those from aborted starts.
-  const rows = snapshot.sessions.filter((session) => session.totalTokens > 0 || session.turns > 0)
-  if (rows.length === 0) return null
-  const header = createElement(
-    'tr',
-    null,
-    createElement('th', null, t('session')),
-    createElement('th', null, t('colTokens')),
-    createElement('th', null, t('colTurns')),
-    createElement('th', null, t('colModel')),
-    createElement('th', null, t('colUpdated')),
-  )
-  const body = rows.map((session) =>
-    createElement(
-      'tr',
-      { key: session.id },
-      createElement(
-        'td',
-        null,
-        createElement(
-          'div',
-          { className: 'tdd-session-name' },
-          createElement(
-            'span',
-            { className: 'tdd-session-title', title: session.title ?? session.id },
-            session.title ?? t('untitled'),
-          ),
-          session.current === true ? createElement('span', { className: 'tdd-tag' }, t('currentSession')) : null,
-        ),
-        createElement('div', { className: 'tdd-path', title: session.cwd }, session.cwd),
-      ),
-      createElement('td', { className: 'tdd-num' }, formatTokensCompact(session.totalTokens)),
-      createElement('td', { className: 'tdd-num' }, countValue(session.turns)),
-      createElement('td', { className: 'tdd-num' }, session.routes[0]?.model ?? MISSING),
-      createElement(
-        'td',
-        { className: 'tdd-num' },
-        formatAbsoluteTime(new Date(session.updatedAt), new Date(), locale),
-      ),
-    ),
-  )
-  return createElement(
-    'section',
-    { className: 'tdd-section' },
-    createElement('div', { className: 'tdd-section-title' }, t('recentSessions')),
-    createElement('table', { className: 'tdd-table' }, createElement('thead', null, header), createElement('tbody', null, ...body)),
-  )
-}
-
-/** Ref kept for future polling work; deliberately unused for now. */

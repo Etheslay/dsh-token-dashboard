@@ -105,6 +105,15 @@ export interface SessionFold {
   context?: ContextPressure
   /** Session title, when the log carries one. */
   title?: string
+  /**
+   * Reasoning effort per request, keyed by the configured label.
+   *
+   * Read from `request/header`, which is written once per outgoing request
+   * envelope, so the tally counts requests rather than messages.
+   */
+  efforts: Map<string, number>
+  /** Skill invocations, keyed by skill name. */
+  skills: Map<string, number>
   /** Epoch milliseconds of the newest event. */
   updatedAt: number
   /** Lines that failed to parse; a truncated live tail is normal. */
@@ -232,6 +241,41 @@ function headerRoute(event: RawLogEvent): { provider: string; model: string } | 
   return undefined
 }
 
+/** The reasoning effort a `request/header` requested, when it named one. */
+function headerEffort(event: RawLogEvent): string | undefined {
+  const config = asRecord(asRecord(asRecord(event.data)?.['header'])?.['config'])
+  const effort = config?.['reasoningEffort']
+  return typeof effort === 'string' && effort.length > 0 ? effort : undefined
+}
+
+/** The reasoning effort a `model/selection` recorded, when it named one. */
+function selectionEffort(event: RawLogEvent): string | undefined {
+  const data = asRecord(event.data)
+  const effort = data?.['reasoningEffort']
+  return typeof effort === 'string' && effort.length > 0 ? effort : undefined
+}
+
+/**
+ * The skill a `tool/call` invoked.
+ *
+ * The `skill` tool takes its target as a JSON string in `arguments`, so the
+ * payload has to be parsed a second time; a malformed payload yields no
+ * attribution rather than a bogus skill named after the raw text.
+ */
+function skillName(event: RawLogEvent): string | undefined {
+  const data = asRecord(event.data)
+  if (data?.['name'] !== 'skill') return undefined
+  const raw = data['arguments']
+  if (typeof raw !== 'string') return undefined
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    const name = asRecord(parsed)?.['name']
+    return typeof name === 'string' && name.length > 0 ? name : undefined
+  } catch {
+    return undefined
+  }
+}
+
 const routeKey = (provider: string, model: string): string => `${provider}\u0000${model}`
 
 /**
@@ -277,6 +321,9 @@ export function foldSession(events: readonly RawLogEvent[], options: FoldOptions
   let context: ContextPressure | undefined
   let title: string | undefined
   let currentRoute: { provider: string; model: string } | undefined
+  const efforts = new Map<string, number>()
+  const skills = new Map<string, number>()
+  const selections = new Map<string, number>()
   /** Start instants of turns not yet closed, keyed by turn number. */
   const openTurns = new Map<number, number>()
 
@@ -346,6 +393,23 @@ export function foldSession(events: readonly RawLogEvent[], options: FoldOptions
       if (window !== undefined && window > 0) {
         context = { tokensInContext: context?.tokensInContext ?? 0, window }
       }
+      continue
+    }
+
+    // The two effort-bearing events are tallied separately. `request/header`
+    // counts outgoing requests, which is what "most used reasoning" should
+    // mean; `model/selection` is only a fallback for logs that never wrote a
+    // request envelope, so the two are never added together.
+    const effort = headerEffort(event)
+    if (effort !== undefined) efforts.set(effort, (efforts.get(effort) ?? 0) + 1)
+    else {
+      const selected = selectionEffort(event)
+      if (selected !== undefined) selections.set(selected, (selections.get(selected) ?? 0) + 1)
+    }
+
+    if (event.type === 'tool/call') {
+      const skill = skillName(event)
+      if (skill !== undefined) skills.set(skill, (skills.get(skill) ?? 0) + 1)
       continue
     }
 
@@ -423,6 +487,8 @@ export function foldSession(events: readonly RawLogEvent[], options: FoldOptions
     longestTurnMs,
     ...(context === undefined ? {} : { context }),
     ...(title === undefined ? {} : { title }),
+    efforts: efforts.size > 0 ? efforts : selections,
+    skills,
     updatedAt,
     malformed: 0,
   }

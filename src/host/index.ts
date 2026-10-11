@@ -22,7 +22,8 @@ import { dshHomeDisplay, resolveDshHome } from './home.ts'
 import { buildSnapshot } from './aggregate.ts'
 import { SessionScanner } from './scan.ts'
 import { dayKeyInZone } from './fold.ts'
-import type { RangeKind, StatsQuery, UsageSnapshot } from '../shared/types.ts'
+import type { StatsQuery, UsageSnapshot } from '../shared/types.ts'
+import { IdentityCache } from './account.ts'
 
 /** Cordis plugin name; must match the Loader entry id in `cordis.patch.yml`. */
 export const name = 'dsh-token-dashboard'
@@ -33,13 +34,13 @@ export const ROUTE_PREFIX = '/dsh-token-dashboard'
 /** How long a snapshot may be reused before rescanning, in milliseconds. */
 const SNAPSHOT_TTL_MS = 5_000
 
-/** The reporting windows the API accepts. */
-const RANGES: readonly RangeKind[] = ['today', '7d', '30d', 'all']
 
 /** The minimal Cordis context surface this plugin touches. */
 interface HostContext {
   effect(callback: () => unknown, label?: string): void
   inject(dependencies: string[], callback: (scoped: HostContext) => void): void
+  /** Optional-service lookup; `strict: false` returns `undefined` when absent. */
+  get?(name: string, strict?: boolean): unknown
   webServer?: {
     register(route: {
       kind: 'exact' | 'prefix'
@@ -95,13 +96,11 @@ function sendJson(response: ServerResponse, status: number, payload: unknown): v
  * @param defaultTimeZone - Zone used when the request omits one.
  * @returns The normalized query.
  */
-export function parseStatsQuery(url: URL, defaultTimeZone: string): Required<Pick<StatsQuery, 'range' | 'timeZone'>> &
+export function parseStatsQuery(url: URL, defaultTimeZone: string): Required<Pick<StatsQuery, 'timeZone'>> &
   Pick<StatsQuery, 'currentSession'> {
-  const requestedRange = queryParam(url, 'range')
-  const range: RangeKind = RANGES.includes(requestedRange as RangeKind) ? (requestedRange as RangeKind) : '30d'
   const timeZone = resolveTimeZone(queryParam(url, 'timeZone'), defaultTimeZone)
   const currentSession = queryParam(url, 'currentSession')
-  return { range, timeZone, ...(currentSession === undefined ? {} : { currentSession }) }
+  return { timeZone, ...(currentSession === undefined ? {} : { currentSession }) }
 }
 
 /**
@@ -112,26 +111,30 @@ export function apply(ctx: HostContext): void {
   const home = resolveDshHome()
   const sessionsRoot = join(home, 'sessions')
   const scanner = new SessionScanner(sessionsRoot)
+  const identity = new IdentityCache()
   const defaultTimeZone = hostTimeZone()
 
   /** Last computed snapshot, reused for {@link SNAPSHOT_TTL_MS}. */
   let cached: { at: number; key: string; snapshot: UsageSnapshot } | undefined
 
-  const buildFor = (query: ReturnType<typeof parseStatsQuery>): UsageSnapshot => {
+  const buildFor = async (query: ReturnType<typeof parseStatsQuery>): Promise<UsageSnapshot> => {
     const now = Date.now()
     const dayKey = dayKeyInZone(now, query.timeZone)
-    const key = `${query.range}\u0000${query.timeZone}\u0000${dayKey}\u0000${query.currentSession ?? ''}`
+    const key = `${query.timeZone}\u0000${dayKey}\u0000${query.currentSession ?? ''}`
     if (cached !== undefined && cached.key === key && now - cached.at < SNAPSHOT_TTL_MS) return cached.snapshot
 
     const started = Date.now()
     const { summaries, warnings } = scanner.read(query.timeZone)
+    // Resolved outside the fold because it may hit the network; the cache keeps
+    // that off the refresh path.
+    const resolved = await identity.read(ctx)
     const snapshot = buildSnapshot({
       summaries,
-      range: query.range,
       timeZone: query.timeZone,
       home,
       todayKey: dayKey,
       ...(query.currentSession === undefined ? {} : { currentSession: query.currentSession }),
+      ...(resolved === undefined ? {} : { identity: resolved }),
       warnings,
       elapsedMs: Date.now() - started,
     })
@@ -160,7 +163,7 @@ export function apply(ctx: HostContext): void {
           sendJson(response, 404, { error: 'not found' })
           return
         }
-        sendJson(response, 200, buildFor(parseStatsQuery(url, defaultTimeZone)))
+        sendJson(response, 200, await buildFor(parseStatsQuery(url, defaultTimeZone)))
       } catch (error) {
         sendJson(response, 500, { error: error instanceof Error ? error.message : String(error) })
       }

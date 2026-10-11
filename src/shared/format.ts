@@ -207,6 +207,64 @@ export function formatDuration(seconds: number): string {
   return `${hours}h ${minutes}m`
 }
 
+/** Whether a locale tag renders numbers and durations in Chinese units. */
+function isChinese(locale: string | undefined): boolean {
+  return typeof locale === 'string' && /^zh/i.test(locale)
+}
+
+/**
+ * A duration in the units the active locale actually reads.
+ *
+ * Codex only ever renders for English, so `formatDuration` alone would print
+ * `46m 59s` where a Chinese UI expects `46分59秒`. Seconds are dropped once an
+ * hour is on the clock, which is what the reference panel does.
+ * @param seconds - Non-negative duration; negatives clamp to zero.
+ * @param locale - BCP-47 tag of the active UI language.
+ * @returns The localized duration label.
+ */
+export function localeDuration(seconds: number, locale?: string): string {
+  if (!isChinese(locale)) return formatDuration(seconds)
+  const safe = Number.isFinite(seconds) ? Math.max(0, Math.trunc(seconds)) : 0
+  const hours = Math.floor(safe / 3600)
+  const minutes = Math.floor((safe % 3600) / 60)
+  const rest = safe % 60
+  if (hours > 0) return `${hours}\u5c0f\u65f6${minutes}\u5206`
+  if (minutes > 0) return `${minutes}\u5206${rest}\u79d2`
+  return `${rest}\u79d2`
+}
+
+/**
+ * A token count in the units the active locale actually reads.
+ *
+ * The reference panel renders Chinese counts as 万 / 亿 rather than K / M, one
+ * decimal either way: `370_000_000` reads `3.7亿` and `53_171_000` reads
+ * `5317.1万`. English keeps Codex's own `compactAmount` rule.
+ * @param value - The count.
+ * @param locale - BCP-47 tag of the active UI language.
+ * @returns The localized compact label.
+ */
+export function localeCompact(value: number, locale?: string): string {
+  if (!isChinese(locale)) return compactAmount(value)
+  if (!Number.isFinite(value)) return MISSING
+  const safe = Math.max(0, Math.trunc(value))
+  if (safe < 10_000) return String(safe)
+  const divisor = safe >= 100_000_000 ? 100_000_000 : 10_000
+  const suffix = safe >= 100_000_000 ? '\u4ebf' : '\u4e07'
+  // Trailing-zero strip, so 3.0亿 reads 3亿 rather than 3.0亿.
+  return `${stripTrailingZeros(fixedHalfEven(safe / divisor, 1))}${suffix}`
+}
+
+/**
+ * A plain grouped count that also follows the Chinese convention.
+ * @param value - Count, or `undefined` for the missing placeholder.
+ * @param locale - BCP-47 tag of the active UI language.
+ * @returns The grouped count or `—`.
+ */
+export function localeCount(value: number | undefined, locale?: string): string {
+  if (value === undefined || !Number.isFinite(value)) return MISSING
+  return isChinese(locale) ? localeCompact(value, locale) : countValue(value)
+}
+
 /**
  * Codex `render_limit_progress_bar`: a fixed-width `[███░░░]` bar.
  *

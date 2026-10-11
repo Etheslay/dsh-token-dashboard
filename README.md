@@ -1,6 +1,6 @@
 # dsh-token-dashboard
 
-Token-usage dashboard for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) — a Codex-style usage panel inside **Settings**.
+Token-usage profile panel for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) — a Codex-style usage report inside **Settings**.
 
 English | [中文](README.zh.md)
 
@@ -12,41 +12,64 @@ English | [中文](README.zh.md)
 
 ## What it shows
 
-| Row | Value |
+Top to bottom:
+
+| Block | Content |
 |---|---|
-| `Model` / `Model provider` | The dominant route in the selected window |
-| `Directory` | The directory with the most usage |
-| `Session` | Sessions and turns in the window |
-| `Token usage` | `533.6M total  (2.02M input + 2.38M output)` |
-| `Context window` | `[████████████████░░░░] 82% left (180.4K used / 1M)` |
-| `Cache` | `[███████████████░░░░░] 75% hit (529.2M read / 706.0M prompt)` |
-| `Reasoning` | Reasoning tokens, with their share of output |
-| `In range` | Change against the previous equal-length window |
+| Identity | Avatar, display name, and handle from the signed-in DeepSeek account. Hidden when signed out. |
+| Five numbers | `Lifetime tokens` · `Peak tokens` · `Longest chat` · `Longest streak` · `Current streak` |
+| `Token activity` | A year-long contribution heatmap, with **Daily · Weekly · Cumulative** modes and a `Less ▢▢▢▢▢ More` ramp |
+| `Insights` | `Most used reasoning` · `Most used model` · `Skills explored` · `Total skills used` · `Total chats` · `Total turns` · `Cache hit rate` |
+| `Most used` | The skills invoked most often, as `$name` with a run count |
 
-Below the card: five all-time headline figures (`Lifetime tokens`, `Peak tokens`, `Longest chat`, `Current streak`, `Longest streak`), a daily token-activity chart, per-model and per-directory breakdowns, and a recent-session table.
-
-Ranges: **Today · 7d · 30d · All**.
+Everything is all-time, so there is no range control to set. The heatmap is the
+only time axis.
 
 ## Why it looks like Codex
 
-The panel reproduces OpenAI Codex's `/status` card. Every formatting rule is a line-by-line port of a named Rust function, and the source is quoted in the doc comment beside each one:
+The panel reproduces the **analytics Overview report** — the profile summary
+Codex opens from `/usage`. (Codex has three usage surfaces; the `/status` card
+is a different one, and it is not this.)
+
+Every formatting rule is a port of a named Rust function, quoted in the doc
+comment beside each one:
 
 | This package | Codex source |
 |---|---|
-| `formatTokensCompact` | `tui/src/status/helpers.rs` |
 | `compactAmount`, `countValue`, `formatDuration` | `tui/src/analytics/{data,summary_panel}.rs` |
+| `formatTokensCompact` | `tui/src/status/helpers.rs` |
 | `renderLimitProgressBar` | `tui/src/status/rate_limits.rs` |
 | `percentOfContextWindowRemaining` | `tui/src/token_usage.rs` |
 | `formatAbsoluteTime` | `tui/src/status/helpers.rs` |
-| the label/value grid | `tui/src/status/format.rs` |
 
-That gives you Codex's recognisable `1.2K` / `128.5K` / `1.2M` compaction (2 decimals below 10, 1 below 100, none above, trailing zeros stripped), its 20-cell `[███░░░]` bar, its `{n}% left` phrasing, its dim parentheticals, and its dynamic label column.
+The heatmap's five-step purple ramp is not guessed at either: it was sampled
+pixel-for-pixel out of the reference panel with `tools/analyze-heatmap.mjs`
+(`#3f226a` → `#6b3ab4` → `#924ff7` → `#be95fa` on a neutral empty step).
 
-**Three deliberate deviations**, because copying Codex literally would have been wrong here:
+### Numbers follow the UI language
 
-1. **The token row is always shown.** Codex hides it for ChatGPT subscribers, who are billed by rate-limit windows rather than tokens. DSH has no such windows, so hiding it would hide the entire point of the panel.
-2. **The 12,000-token context baseline is not applied.** Codex subtracts a fixed 12K to discount its own system prompt. DSH's prompt overhead is a different size, so the same constant would produce a confidently wrong percentage. Occupancy is reported raw.
-3. **Rate-limit bars became a context-occupancy bar.** Codex's bars encode a provider quota, which DSH has no equivalent of. Context occupancy is a genuine 0–100% remaining quantity, so the bar is reused there — its original purpose — rather than drawn against an invented denominator.
+This is the one place a straight English port would have been visibly wrong. A
+Chinese panel reads **`3.7亿`** and **`5317.1万`**, not `370M` and `53.2M`, and a
+duration is **`46分59秒`**, not `46m 59s`. `localeCompact` / `localeDuration` /
+`localeCount` own that split, and `tests/render.test.mjs` asserts the exact
+strings from the reference screenshots.
+
+### Four deliberate deviations
+
+Copying Codex literally would have been wrong in these four places:
+
+1. **Nothing is claimed that DSH cannot measure.** Codex's panel shows credits,
+   a plan name, an account email, and 5-hour / weekly / monthly rate-limit
+   windows. DSH has none of those, so none of them are here — not even as a
+   placeholder bar with an invented denominator. The metrics that remain are
+   each backed by a field the session log actually writes.
+2. **The heatmap's empty step is re-sourced.** The sampled `#181818` sits on
+   `#111111` in the reference, but DSH's dark surface is `#151517`, which leaves
+   it nearly invisible; the empty cell uses DSH's nested-surface token instead.
+3. **English pluralization is fixed.** Codex prints `{days} days` with no
+   singular, so a one-day streak reads `1 days`. That is grammar, not design.
+4. **`Most used model` ranks by tokens, not by reply count.** A hundred cheap
+   replies should not outrank the one model that spent the budget.
 
 ## Install
 
@@ -72,11 +95,21 @@ The package ships two halves, as `dsh.client` declares:
 
 **Newer log-format versions are not automatically better.** A session directory accumulates `session.v3`, `session.v4`, … where the newer file is a rewrite of the same conversation. But a rewrite that was interrupted leaves a *shorter* newer file with undecodable frames. On the machine this was developed on, one session has a healthy 3563-event `v3` next to a truncated 245-event `v4` — taking the highest version silently discarded **191.7M tokens, 56% of the store's total**. Every version present is therefore decoded and the one with the furthest durable `seq` wins.
 
-**Usage samples are replaced, not accumulated.** A streamed assistant message can report usage more than once for the same `(turn, step)`, and `llm/retry-started` closes that slot so a retried attempt counts again. The fold mirrors DSH's own `tokenUsage` projection exactly. Verified against a full store: the fold matches an independent naive sum of every `assistant/message` record on all four buckets, across 2,401 records.
+**Usage samples are replaced, not accumulated.** A streamed assistant message can report usage more than once for the same `(turn, step)`, and `llm/retry-started` closes that slot so a retried attempt counts again. The fold mirrors DSH's own `tokenUsage` projection exactly. Verified against a full store: the fold matches an independent naive sum of every `assistant/message` record on all four buckets, across 2,600+ records.
+
+**A day is a day, not a session.** `Peak tokens` is the maximum over the *aggregated* day buckets. Reading each session's own busiest day instead under-reported the peak by 53% here, because two sessions had run on the same date.
+
+### Updating
+
+The two halves do not reload together. The module system hot-swaps the browser
+bundle, but the Host half is a cached ES module that only a DSH restart replaces.
+When the browser half sees a snapshot from an older Host it says **"restart
+DSH"** rather than dereferencing a field that is not there and blanking the
+settings dialog.
 
 ### Cost
 
-The first scan of a 20-session, 500 MB store takes about a second. Results are memoized per `(size, mtimeMs)`, so later refreshes only decode logs that changed, and snapshots are reused for 5 seconds.
+The first scan of a 20-session, 600 MB store takes about a second. Results are memoized per `(size, mtimeMs)`, so later refreshes only decode logs that changed, and snapshots are reused for 5 seconds. The account lookup that feeds the identity block is cached for 5 minutes and is skipped entirely when no account service is present.
 
 ### Privacy
 
@@ -100,7 +133,9 @@ npm run preview   # write docs/panel.html from your own session store
 
 `tests/host-route.test.mjs` runs the built plugin against your real `$DSH_HOME/sessions` and asserts the fold matches an independent sum of the same logs. It skips cleanly when no session store exists.
 
-`tests/render.test.mjs` asserts the Codex formatting rules against values taken from the Rust source, and renders the panel to check the card, the bars, the headline figures, the empty and error states, and both dictionaries.
+`tests/render.test.mjs` asserts the formatting rules against values taken from the Rust source and the localized units taken from the reference panel, then renders the whole report to check the identity block, the five-cell bar, the heatmap's week alignment and three modes, the insights, the empty and error states, and both dictionaries.
+
+`tools/analyze-heatmap.mjs` is how the ramp was derived; `tools/sample-shot.mjs` decodes a PNG with no dependency so a screenshot can be measured rather than eyeballed. See [`tools/README.md`](tools/README.md).
 
 ## License
 

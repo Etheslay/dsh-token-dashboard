@@ -3,19 +3,14 @@
  *
  * Two rules govern everything here:
  *
- *   1. **Colour comes from the shell's theme tokens** (`--dsw-alias-*`), never
- *      from a hard-coded palette, so the panel follows the user's light/dark
- *      preference automatically — the shell defines those tokens on `body` and
- *      redefines them under `body[data-ds-dark-theme]`.
- *   2. **The only Codex-specific colours are the accent pair**, and they are
- *      switched on that same `body[data-ds-dark-theme]` attribute rather than
- *      on `prefers-color-scheme`, so a user who forces light on a dark OS still
- *      gets the light accent.
- *
- * The label/value grid is the Codex `/status` card's layout algebra expressed
- * in CSS: `grid-template-columns: max-content 1fr` is exactly Codex's
- * "recompute the label column from the labels actually present, then put every
- * value at the same offset".
+ *   1. **Surfaces and text come from the shell's theme tokens**
+ *      (`--dsw-alias-*`), so the panel follows the user's light/dark preference
+ *      automatically — the shell defines those tokens on `body` and redefines
+ *      them under `body[data-ds-dark-theme]`.
+ *   2. **The activity ramp does not.** The five-step purple scale below is
+ *      sampled pixel-for-pixel from the reference panel, because it is that
+ *      panel's visual signature rather than a themed surface. A separate light
+ *      variant keeps the same hue legible instead of washing out.
  *
  * @module dsh-token-dashboard/client/styles
  */
@@ -23,296 +18,104 @@
 /** Identifier used for the injected `<style>` element. */
 export const STYLE_ID = 'dsh-token-dashboard/panel'
 
-/** Codex's dark-mode accent (`style.rs`). */
-const ACCENT_DARK = '#63a8f8'
-/** Codex's light-mode accent (`style.rs`). */
-const ACCENT_LIGHT = '#1c64c8'
+/**
+ * The activity heatmap's five steps.
+ *
+ * Index 0 is "no activity"; 1-4 are the ramp, darkest to brightest. The purple
+ * values were read out of the reference screenshots with
+ * `tools/analyze-heatmap.mjs`.
+ *
+ * The empty step is deliberately NOT the sampled `#181818`: DSH's own dark
+ * surface is `#151517`, which leaves that value almost invisible, whereas the
+ * reference panel sat it on `#111111`. It uses the theme's nested-surface token
+ * instead, so the grid reads in either theme and still looks like the
+ * reference.
+ */
+export const HEATMAP_RAMP = {
+  light: ['#ebebed', '#ddd0fb', '#b98ef7', '#8b46f0', '#5f21c9'],
+  dark: ['#232326', '#3f226a', '#6b3ab4', '#924ff7', '#be95fa'],
+} as const
 
 /** The panel stylesheet. */
-export const PANEL_CSS = `
-.tdd {
-  --tdd-accent: ${ACCENT_LIGHT};
-  --tdd-accent-soft: color-mix(in srgb, ${ACCENT_LIGHT} 14%, transparent);
-  display: flex;
-  flex-direction: column;
-  gap: 22px;
-  min-width: 0;
-  height: 100%;
-  overflow-y: auto;
-  padding: 4px 2px 32px;
-  color: var(--dsw-alias-label-primary);
-  font-size: 13px;
-  line-height: 1.5;
-}
-body[data-ds-dark-theme] .tdd {
-  --tdd-accent: ${ACCENT_DARK};
-  --tdd-accent-soft: color-mix(in srgb, ${ACCENT_DARK} 18%, transparent);
-}
+export const PANEL_CSS = [
+  '.tdd{',
+  `--tdd-ramp-0:${HEATMAP_RAMP.light[0]};--tdd-ramp-1:${HEATMAP_RAMP.light[1]};`,
+  `--tdd-ramp-2:${HEATMAP_RAMP.light[2]};--tdd-ramp-3:${HEATMAP_RAMP.light[3]};--tdd-ramp-4:${HEATMAP_RAMP.light[4]};`,
+  'display:flex;flex-direction:column;gap:26px;min-width:0;height:100%;overflow-y:auto;',
+  'padding:4px 2px 32px;color:var(--dsw-alias-label-primary);font-size:13px;line-height:1.5}',
+  'body[data-ds-dark-theme] .tdd{',
+  `--tdd-ramp-0:${HEATMAP_RAMP.dark[0]};--tdd-ramp-1:${HEATMAP_RAMP.dark[1]};`,
+  `--tdd-ramp-2:${HEATMAP_RAMP.dark[2]};--tdd-ramp-3:${HEATMAP_RAMP.dark[3]};--tdd-ramp-4:${HEATMAP_RAMP.dark[4]}}`,
 
-/* ---------- header ---------- */
-.tdd-head {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: flex-start;
-  justify-content: space-between;
-}
-.tdd-headtext { min-width: 0; }
-.tdd-title {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-}
-.tdd-sub {
-  margin: 3px 0 0;
-  color: var(--dsw-alias-label-secondary);
-  font-size: 12px;
-}
-.tdd-controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-}
-.tdd-ranges {
-  display: inline-flex;
-  padding: 2px;
-  border: 1px solid var(--dsw-alias-border-l1);
-  border-radius: 8px;
-  background: var(--dsw-alias-bg-layer-2);
-}
-.tdd-range {
-  appearance: none;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--dsw-alias-label-secondary);
-  cursor: pointer;
-  font: inherit;
-  font-size: 12px;
-  padding: 3px 10px;
-}
-.tdd-range:hover { color: var(--dsw-alias-label-primary); }
-.tdd-range[aria-pressed='true'] {
-  background: var(--dsw-alias-bg-layer-1);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 12%);
-  color: var(--dsw-alias-label-primary);
-  font-weight: 500;
-}
-.tdd-btn {
-  appearance: none;
-  border: 1px solid var(--dsw-alias-border-l1);
-  border-radius: 8px;
-  background: var(--dsw-alias-bg-layer-2);
-  color: var(--dsw-alias-label-primary);
-  cursor: pointer;
-  font: inherit;
-  font-size: 12px;
-  padding: 4px 10px;
-}
-.tdd-btn:hover { border-color: var(--dsw-alias-border-l2); }
-.tdd-btn:disabled { cursor: default; opacity: 0.55; }
-.tdd-stamp {
-  color: var(--dsw-alias-label-secondary);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
+  // header
+  '.tdd-head{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}',
+  '.tdd-title{margin:0;font-size:14px;font-weight:600}',
+  '.tdd-stamp{color:var(--dsw-alias-label-secondary);font-size:11px;font-variant-numeric:tabular-nums;white-space:nowrap}',
+  '.tdd-btn{appearance:none;border:1px solid var(--dsw-alias-border-l1);border-radius:7px;background:transparent;',
+  'color:var(--dsw-alias-label-secondary);cursor:pointer;font:inherit;font-size:12px;padding:3px 10px}',
+  '.tdd-btn:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2)}',
+  '.tdd-btn:disabled{cursor:default;opacity:.5}',
 
-/* ---------- the Codex label/value card ---------- */
-.tdd-card {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  column-gap: 2ch;
-  row-gap: 3px;
-  min-width: 0;
-}
-.tdd-block { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
-.tdd-label {
-  color: var(--dsw-alias-label-secondary);
-  white-space: nowrap;
-}
-.tdd-label::after { content: ':'; }
-.tdd-value {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  font-variant-numeric: tabular-nums;
-}
-.tdd-dim { color: var(--dsw-alias-label-secondary); }
-.tdd-accent { color: var(--tdd-accent); }
-.tdd-mono {
-  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
-  letter-spacing: -0.02em;
-}
-.tdd-gap { grid-column: 1 / -1; height: 8px; }
+  // identity
+  '.tdd-identity{display:flex;flex-direction:column;align-items:center;gap:10px;padding:22px 0 4px;text-align:center}',
+  '.tdd-avatar{width:84px;height:84px;border-radius:50%;object-fit:cover;background:var(--dsw-alias-bg-layer-2);flex:none}',
+  '.tdd-avatar-fallback{display:flex;align-items:center;justify-content:center;color:var(--dsw-alias-label-secondary);',
+  'font-size:30px;font-weight:600}',
+  '.tdd-name{font-size:22px;font-weight:600;letter-spacing:-.01em}',
+  '.tdd-handle{color:var(--dsw-alias-label-secondary);font-size:13px}',
 
-/* ---------- big numbers (Codex analytics Overview) ---------- */
-.tdd-figures {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(116px, 1fr));
-  gap: 14px 20px;
-  padding: 2px 0;
-}
-.tdd-figure { min-width: 0; }
-.tdd-figure-value {
-  font-size: 20px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.tdd-figure-label {
-  margin-top: 1px;
-  color: var(--dsw-alias-label-secondary);
-  font-size: 11px;
-  white-space: nowrap;
-}
+  // the five-number bar
+  '.tdd-stats{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);',
+  'border:1px solid var(--dsw-alias-border-l1);border-radius:14px;overflow:hidden}',
+  '.tdd-stat{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;',
+  'padding:20px 10px;text-align:center;min-width:0}',
+  '.tdd-stat+.tdd-stat{border-left:1px solid var(--dsw-alias-border-l1)}',
+  '.tdd-stat-value{font-size:19px;font-weight:600;letter-spacing:-.01em;font-variant-numeric:tabular-nums;white-space:nowrap}',
+  '.tdd-stat-label{color:var(--dsw-alias-label-secondary);font-size:12px;white-space:nowrap}',
 
-/* ---------- activity chart ---------- */
-.tdd-section { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.tdd-section-title { font-size: 13px; font-weight: 600; }
-.tdd-section-note { color: var(--dsw-alias-label-secondary); font-size: 11px; }
-.tdd-chart { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.tdd-chart-row {
-  display: flex;
-  gap: 1px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 15px;
-  line-height: 1.1;
-  min-width: 0;
-}
-.tdd-bar {
-  appearance: none;
-  border: 0;
-  background: transparent;
-  border-radius: 2px;
-  color: var(--tdd-accent);
-  cursor: default;
-  flex: 1 1 0;
-  font: inherit;
-  min-width: 3px;
-  padding: 0;
-  text-align: center;
-}
-.tdd-bar:hover, .tdd-bar[data-active='true'] { background: var(--tdd-accent-soft); }
-.tdd-axis {
-  color: var(--dsw-alias-label-secondary);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  overflow: hidden;
-  white-space: nowrap;
-  font-size: 11px;
-}
-/* One baseline cell per bar column, so the rule ends where the data does. */
-.tdd-baseline { font-size: 11px; line-height: 1; }
-.tdd-baseline .tdd-axis { flex: 1 1 0; min-width: 3px; text-align: center; }
-.tdd-legend {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--dsw-alias-label-secondary);
-  font-size: 11px;
-}
-.tdd-callout {
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-.tdd-callout strong { font-weight: 600; }
+  // sections
+  '.tdd-section{display:flex;flex-direction:column;gap:12px;min-width:0}',
+  '.tdd-section-head{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}',
+  '.tdd-section-title{font-size:14px;font-weight:600}',
+  '.tdd-tabs{display:inline-flex;gap:4px;align-items:center}',
+  '.tdd-tab{appearance:none;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);',
+  'cursor:pointer;font:inherit;font-size:12px;padding:2px 7px}',
+  '.tdd-tab:hover{color:var(--dsw-alias-label-primary)}',
+  ".tdd-tab[aria-pressed='true']{color:var(--dsw-alias-label-primary);font-weight:600}",
 
-/* ---------- breakdown lists ---------- */
-.tdd-legend-list { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.tdd-legend-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) max-content;
-  align-items: baseline;
-  gap: 12px;
-  min-width: 0;
-}
-.tdd-legend-name {
-  display: flex;
-  align-items: baseline;
-  gap: 7px;
-  min-width: 0;
-}
-.tdd-legend-name > span:last-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.tdd-dot { color: var(--tdd-accent); flex: none; font-size: 9px; line-height: 1; }
-.tdd-legend-pct {
-  color: var(--dsw-alias-label-secondary);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.tdd-legend-sub {
-  color: var(--dsw-alias-label-secondary);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-}
+  // heatmap
+  '.tdd-heat{display:flex;flex-direction:column;gap:6px;min-width:0}',
+  '.tdd-heat-scroll{overflow-x:auto;padding-bottom:2px}',
+  '.tdd-heat-grid{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,var(--tdd-cell));',
+  'gap:var(--tdd-gap);width:max-content;--tdd-cell:16px;--tdd-gap:4px}',
+  '.tdd-cell{width:var(--tdd-cell);height:var(--tdd-cell);border-radius:4px;background:var(--tdd-ramp-0)}',
+  ".tdd-cell[data-level='1']{background:var(--tdd-ramp-1)}",
+  ".tdd-cell[data-level='2']{background:var(--tdd-ramp-2)}",
+  ".tdd-cell[data-level='3']{background:var(--tdd-ramp-3)}",
+  ".tdd-cell[data-level='4']{background:var(--tdd-ramp-4)}",
+  '.tdd-heat-months{display:grid;grid-auto-flow:column;gap:var(--tdd-gap);width:max-content;--tdd-gap:4px;',
+  'color:var(--dsw-alias-label-secondary);font-size:11px;white-space:nowrap}',
+  '.tdd-heat-foot{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;',
+  'color:var(--dsw-alias-label-secondary);font-size:11px;min-height:18px}',
+  '.tdd-heat-legend{display:inline-flex;align-items:center;gap:5px}',
+  '.tdd-heat-legend .tdd-cell{--tdd-cell:11px}',
 
-/* ---------- session table ---------- */
-.tdd-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-.tdd-table th {
-  color: var(--dsw-alias-label-secondary);
-  font-weight: 400;
-  padding: 0 10px 5px 0;
-  text-align: left;
-  white-space: nowrap;
-}
-.tdd-table td {
-  border-top: 1px solid var(--dsw-alias-border-l1);
-  padding: 6px 10px 6px 0;
-  vertical-align: top;
-}
-.tdd-table th:last-child, .tdd-table td:last-child { padding-right: 0; text-align: right; }
-.tdd-table .tdd-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
-.tdd-session-name {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-.tdd-session-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 34ch;
-}
-.tdd-tag {
-  border: 1px solid var(--tdd-accent);
-  border-radius: 4px;
-  color: var(--tdd-accent);
-  flex: none;
-  font-size: 10px;
-  line-height: 1.4;
-  padding: 0 4px;
-}
-.tdd-path {
-  color: var(--dsw-alias-label-secondary);
-  font-size: 11px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 34ch;
-}
+  // insights
+  '.tdd-cols{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 44px}',
+  '@media (max-width:640px){.tdd-cols{grid-template-columns:minmax(0,1fr)}}',
+  '.tdd-col{display:flex;flex-direction:column;gap:10px;min-width:0}',
+  '.tdd-col-title{font-size:13px;font-weight:600}',
+  '.tdd-rows{display:flex;flex-direction:column;gap:9px;min-width:0}',
+  '.tdd-row{display:grid;grid-template-columns:minmax(0,1fr) max-content;gap:14px;align-items:baseline;min-width:0}',
+  '.tdd-row-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+  '.tdd-row-value{color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;white-space:nowrap}',
 
-/* ---------- states ---------- */
-.tdd-empty {
-  color: var(--dsw-alias-label-secondary);
-  padding: 10px 0;
-}
-.tdd-error {
-  border: 1px solid var(--dsw-alias-state-error-primary);
-  border-radius: 8px;
-  padding: 12px 14px;
-}
-.tdd-error-title { color: var(--dsw-alias-state-error-primary); font-weight: 600; }
-.tdd-warn {
-  border-left: 2px solid var(--dsw-alias-state-warn-primary);
-  color: var(--dsw-alias-label-secondary);
-  font-size: 11px;
-  padding: 2px 0 2px 10px;
-}
-.tdd-skeleton { color: var(--dsw-alias-label-secondary); padding: 18px 0; }
-`
+  // states
+  '.tdd-empty{color:var(--dsw-alias-label-secondary);padding:6px 0}',
+  '.tdd-error{border:1px solid var(--dsw-alias-state-error-primary);border-radius:10px;padding:14px 16px}',
+  '.tdd-error-title{color:var(--dsw-alias-state-error-primary);font-weight:600;margin-bottom:4px}',
+  '.tdd-sub{color:var(--dsw-alias-label-secondary);font-size:12px}',
+  '.tdd-warn{border-left:2px solid var(--dsw-alias-state-warn-primary);color:var(--dsw-alias-label-secondary);',
+  'font-size:11px;padding:2px 0 2px 10px}',
+  '.tdd-skeleton{color:var(--dsw-alias-label-secondary);padding:40px 0;text-align:center}',
+].join('')

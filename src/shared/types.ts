@@ -147,9 +147,6 @@ export interface ProfileSummary {
   activeDays: number
 }
 
-/** The selectable reporting windows. */
-export type RangeKind = 'today' | '7d' | '30d' | 'all'
-
 /** One scan's complete answer. */
 export interface UsageSnapshot {
   /** Epoch milliseconds when the Host produced this snapshot. */
@@ -162,47 +159,86 @@ export interface UsageSnapshot {
   timeZone: string
   /** Agent preset most sessions were seeded with, when recorded. */
   agentPreset?: string
-  /** The requested window. */
-  range: {
-    kind: RangeKind
-    /** Inclusive lower bound, epoch milliseconds; `undefined` for `all`. */
-    since?: number
-    /** Exclusive upper bound, epoch milliseconds. */
-    until: number
-  }
-  /** Totals for the selected window. */
+  /** Who the panel is about, when the harness has a signed-in account. */
+  identity?: ProfileIdentity
+  /** All-time totals across every session. */
   totals: CountedBuckets & {
     /** Distinct Sessions contributing at least one token. */
     sessions: number
-    /** Turns that started inside the window. */
+    /** Turns that started in any session. */
     turns: number
-    /** Assistant settlements inside the window. */
+    /** Assistant settlements recorded. */
     responses: number
   }
-  /** Totals for the immediately preceding equal-length window, for deltas. */
-  previous?: CountedBuckets & { sessions: number }
   /** Per-day buckets, oldest first; only days with activity are present. */
   days: DayUsage[]
-  /** Per-route breakdown across the window, heaviest first. */
+  /**
+   * Calendar bounds of the activity heatmap, as `YYYY-MM-DD` day keys.
+   *
+   * The Host states the window rather than sending a bucket for every one of
+   * its ~366 days; the browser lays out the grid and leaves the gaps empty.
+   */
+  heatmap: { from: string; to: string }
+  /** Per-route breakdown, heaviest first. */
   models: RouteUsage[]
-  /** Per-directory breakdown across the window, heaviest first. */
+  /** Per-directory breakdown, heaviest first. */
   workspaces: WorkspaceUsage[]
-  /** Recent Sessions, newest first. Always all-time, never range-filtered. */
+  /** Recent Sessions, newest first. */
   sessions: SessionRow[]
-  /** Cache effectiveness across the window. */
+  /** Cache effectiveness. */
   cache: CacheStats
-  /** All-time totals, independent of the selected window. */
-  allTime: CountedBuckets & { sessions: number }
-  /** All-time headline figures for the profile block. */
+  /** All-time headline figures for the stat bar. */
   profile: ProfileSummary
+  /** Everything the insights column reports. */
+  insights: Insights
   /** Non-fatal problems worth surfacing, for example unreadable logs. */
   warnings: string[]
 }
 
+/** Who the panel is about. */
+export interface ProfileIdentity {
+  /** Display name, when the account has one. */
+  name?: string
+  /** Handle shown under the name: an email or mobile number. */
+  handle?: string
+  /** Avatar image URL. */
+  avatarUrl?: string
+}
+
+/** One labelled slice of a distribution. */
+export interface Share {
+  /** The value's own label, for example `high` or `deepseek-flash`. */
+  label: string
+  /** How many samples carried it. */
+  count: number
+  /** Its share of the distribution, in `0..=100`. */
+  share: number
+}
+
+/** One entry of the "most used" list. */
+export interface UsageCount {
+  /** Name of the skill. */
+  name: string
+  /** How many times it was invoked. */
+  runs: number
+}
+
+/** The insights column, mirroring Codex's `Activity insights` and skills list. */
+export interface Insights {
+  /** Reasoning effort per request, heaviest first. Empty when never recorded. */
+  reasoning: Share[]
+  /** Distinct skills invoked at least once. */
+  skillsExplored: number
+  /** Total skill invocations. */
+  skillsTotal: number
+  /** Most-invoked skills, heaviest first. */
+  topSkills: UsageCount[]
+  /** Models used, heaviest first. */
+  models: Share[]
+}
+
 /** The `GET /stats` query the browser sends. */
 export interface StatsQuery {
-  /** Reporting window; defaults to `30d`. */
-  range?: RangeKind
   /** IANA zone for day bucketing; defaults to the Host's zone. */
   timeZone?: string
   /** Session id the browser has open, highlighted in the list. */

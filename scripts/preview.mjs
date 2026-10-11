@@ -53,10 +53,17 @@ async function loadPanel() {
 /**
  * Lift the DSH token definitions out of the theme plugin's browser bundle.
  *
- * They live in a CSS template inside the minified bundle, as two rules: `body`
- * for light and `body[data-ds-dark-theme]` for dark. Reusing them verbatim is
- * what makes the preview's colours the harness's colours.
- * @returns The two CSS rule blocks, or `undefined` when the bundle is absent.
+ * They live in CSS templates inside the minified bundle, as a two-layer
+ * cascade: `body{…}` rules carry the light palette and
+ * `body[data-ds-dark-theme]{…}` rules override it. The dark layer is itself
+ * split across two rules — one redefines the `--dsw-static-*` palette, a later
+ * one rebinds the `--dsw-alias-*` names to it — so taking a single rule per
+ * theme leaves alias names pointing at statics that were never redefined, and
+ * the preview renders a light page wearing a dark ramp.
+ *
+ * Every token-bearing rule is therefore collected in document order, which
+ * reproduces the real cascade instead of guessing at it.
+ * @returns The CSS text and the bundle it came from.
  */
 function dshThemeCss() {
   const candidates = [
@@ -66,11 +73,18 @@ function dshThemeCss() {
   const bundle = candidates.find((candidate) => fs.existsSync(candidate))
   if (bundle === undefined) return undefined
   const text = fs.readFileSync(bundle, 'utf8')
-  const lightStart = text.indexOf('body{--dsw-alias-bg-base:')
-  const darkStart = text.indexOf('body[data-ds-dark-theme]{')
-  if (lightStart < 0 || darkStart < 0) return undefined
-  const light = text.slice(lightStart, text.indexOf('}', lightStart) + 1)
-  const dark = text.slice(darkStart, text.indexOf('}', darkStart) + 1)
+
+  const rules = []
+  for (const match of text.matchAll(/body(?:\[data-ds-dark-theme\])?\{/g)) {
+    const start = match.index
+    const end = text.indexOf('}', start)
+    if (end < 0) continue
+    const rule = text.slice(start, end + 1)
+    if (rule.includes('--dsw-')) rules.push(rule)
+  }
+  const light = rules.filter((rule) => rule.startsWith('body{')).join('')
+  const dark = rules.filter((rule) => rule.startsWith('body[data-ds-dark-theme]{')).join('')
+  if (light.length === 0 || dark.length === 0) return undefined
   return { light, dark, source: bundle }
 }
 
@@ -85,7 +99,6 @@ const started = Date.now()
 const { summaries, warnings } = scanner.read(timeZone)
 const snapshot = buildSnapshot({
   summaries,
-  range: '30d',
   timeZone,
   home,
   todayKey: dayKeyInZone(Date.now(), timeZone),

@@ -187,17 +187,14 @@ for (const summary of summaries) {
 // so a snapshot is only ever checked against itself, never against a second
 // read taken moments later.
 const daySum = snapshot.days.reduce((sum, day) => sum + day.totalTokens, 0)
-assert.equal(snapshot.totals.totalTokens, daySum, 'range=all totals must equal the sum of the day buckets')
+assert.equal(snapshot.totals.totalTokens, daySum, 'the all-time total must equal the sum of the day buckets')
 assert.equal(
   snapshot.profile.lifetimeTokens,
-  snapshot.allTime.totalTokens,
+  snapshot.totals.totalTokens,
   'the profile lifetime figure must equal the all-time total',
 )
 const sessionSum = snapshot.sessions.reduce((sum, session) => sum + session.totalTokens, 0)
-assert.ok(
-  sessionSum <= snapshot.profile.lifetimeTokens,
-  'listed sessions cannot exceed the lifetime total',
-)
+assert.ok(sessionSum <= snapshot.profile.lifetimeTokens, 'listed sessions cannot exceed the lifetime total')
 for (const day of snapshot.days) {
   assert.ok(day.totalTokens >= 0, 'day buckets must never go negative')
   assert.equal(day.totalTokens, day.uncachedInputTokens + day.cacheReadTokens + day.cacheWriteTokens + day.outputTokens)
@@ -207,7 +204,55 @@ for (const workspace of snapshot.workspaces) {
 }
 console.log(`  snapshot days    : ${snapshot.days.length} (sum ${daySum})`)
 
-// --- 6. the version-selection rule must not silently drop a session ---------
+// --- 6. the profile block must agree with the day buckets -------------------
+{
+  const { profile, insights } = snapshot
+  // The peak is the maximum over the buckets the heatmap draws, not a second
+  // independent figure that could disagree with them.
+  const peak = snapshot.days.reduce((best, day) => (day.totalTokens > best.totalTokens ? day : best), { totalTokens: 0 })
+  assert.equal(profile.peakDailyTokens, peak.totalTokens, 'the peak must equal the largest day bucket')
+  assert.equal(profile.peakDay, peak.date, 'the peak day must be the day that bucket belongs to')
+  assert.equal(
+    profile.activeDays,
+    new Set(snapshot.days.map((day) => day.date)).size,
+    'the active-day count must match the day buckets',
+  )
+  assert.ok(profile.longestTurnSeconds >= 0)
+  assert.ok(profile.currentStreakDays <= profile.longestStreakDays, 'the current streak cannot beat the record')
+
+  // Insights must be internally consistent: shares sum to 100 and the skills
+  // total equals the sum of the per-skill counts.
+  for (const [name, shares] of [['reasoning', insights.reasoning], ['models', insights.models]]) {
+    if (shares.length === 0) continue
+    const total = shares.reduce((sum, share) => sum + share.share, 0)
+    assert.ok(Math.abs(total - 100) < 0.001, `${name} shares must sum to 100, got ${total}`)
+    for (const share of shares) assert.ok(share.count > 0 && share.share > 0, `${name} shares must be positive`)
+  }
+  const skillRuns = insights.topSkills.reduce((sum, skill) => sum + skill.runs, 0)
+  assert.ok(skillRuns <= insights.skillsTotal, 'listed skill runs cannot exceed the recorded total')
+  assert.equal(insights.skillsExplored, insights.topSkills.length, 'every distinct skill must appear in the list')
+  console.log(
+    `  profile          : peak ${profile.peakDailyTokens} on ${profile.peakDay ?? 'n/a'}, longest ${profile.longestTurnSeconds.toFixed(0)}s`,
+  )
+  console.log(
+    `  insights         : reasoning ${insights.reasoning.map((s) => `${s.label} ${s.share.toFixed(0)}%`).join(', ') || 'none'}`,
+  )
+  console.log(`  skills           : ${insights.skillsExplored} explored, ${insights.skillsTotal} runs`)
+}
+
+// --- 7. the heatmap window must be a real calendar span ---------------------
+{
+  const { from, to } = snapshot.heatmap
+  assert.match(from, /^\d{4}-\d{2}-\d{2}$/, 'the heatmap start must be a day key')
+  assert.match(to, /^\d{4}-\d{2}-\d{2}$/, 'the heatmap end must be a day key')
+  assert.ok(from < to, 'the heatmap window must run forwards')
+  // Roughly a year, and never longer than one.
+  const spanDays = (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000
+  assert.ok(spanDays > 330 && spanDays < 400, `the heatmap should span about a year, got ${spanDays} days`)
+  console.log(`  heatmap window   : ${from} .. ${to} (${spanDays} days)`)
+}
+
+// --- 8. the version-selection rule must not silently drop a session ---------
 {
   const groups = discoverSessionLogs(sessionsRoot)
   const multi = groups.filter((group) => group.length > 1)

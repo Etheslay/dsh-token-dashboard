@@ -64,6 +64,10 @@ export interface SessionSummary {
   dayRoutes: DayRouteUsage[]
   /** Newest context occupancy. */
   context?: ContextPressure
+  /** Reasoning effort per request, keyed by label. */
+  efforts: Record<string, number>
+  /** Skill invocations, keyed by skill name. */
+  skills: Record<string, number>
   /** Lines that failed to parse; a truncated live tail is normal. */
   malformedLines: number
   /** zstd frames that failed to decode; normally only the truncated tail. */
@@ -194,6 +198,8 @@ function toSummary(
     days,
     dayRoutes: [...fold.dayRoutes.values()].map(dayRouteToWire),
     ...(fold.context === undefined ? {} : { context: fold.context }),
+    efforts: Object.fromEntries(fold.efforts),
+    skills: Object.fromEntries(fold.skills),
     malformedLines,
     failedFrames,
     maxSeq,

@@ -15,6 +15,8 @@ Run any of them with plain `node`; each reaches into `$DSH_HOME` (or
 | `probe-sessions.mjs` | Event-type histogram per session, from the real decoder. |
 | `dump-events.mjs` | One trimmed example of each event type. This is the reference for the field names the fold reads: `assistant/message` → `data.usage.{inputTokens,outputTokens,totalTokens,cacheReadTokens,reasoningTokens}`, and the `session` header's **top-level** `id` / `cwd` / `createdAt` (not under `data` — reading `header.data.cwd` is the bug that made the panel show `(unknown)`). |
 | `probe-usage.mjs` | Counts `assistant/message` records that actually carry usage, across the largest logs. |
+| `sample-shot.mjs` | Decodes a PNG with no dependency (IHDR/IDAT, inflate, per-scanline unfilter), so a reference screenshot can be measured instead of eyeballed. |
+| `analyze-heatmap.mjs` | Uses the decoder above to pull the activity ramp's exact five colours, cell size, gap, and corner radius out of a reference screenshot. That is where `HEATMAP_RAMP` in `src/client/styles.ts` comes from. |
 | `probe-client-bundles.mjs` | Shows how real client plugins (dsh-pet, dsh-market, dsh-codex-ui) wrap their bundle and which module ids they `require`, which is how this package's `window.__ModuleLoader__.load` wrapper was matched. |
 
 None of these are covered by `npm test`. The tests that *are* run live in
