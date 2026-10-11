@@ -185,4 +185,4 @@ npm run refresh:profile  # 重新打包并装进 app 实际加载的 profile
 
 ## 许可
 
-MIT。此处复刻的 Codex 格式化规则源自 Apache-2.0 代码，详见 [LICENSE](LICENSE)。
+MIT。此处复刻的 Codex 格式化规则源自 Apache-2.0 代码：许可全文见 [LICENSE](LICENSE)，复刻了什么、来自哪里见 [NOTICE](NOTICE)。

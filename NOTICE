@@ -1,0 +1,17 @@
+dsh-token-dashboard
+Copyright (c) 2026 dsh-token-dashboard contributors
+
+This product reproduces observable formatting behaviour from OpenAI's Codex
+(https://github.com/openai/codex), which is licensed under the Apache License,
+Version 2.0.
+
+The specific functions and the Codex source locations they mirror are named in
+the doc comments of the modules that port them:
+
+  - src/shared/format.ts   — compactAmount, countValue, formatDuration,
+                             formatAbsoluteTime, and the helpers beside them
+  - src/client/panel.tsx   — the analytics Overview layout
+
+No Codex source code is copied or redistributed here. Only the observable
+formatting rules — how a number is abbreviated, how a duration is rendered, how
+the profile report is laid out — were reproduced, from the published source.

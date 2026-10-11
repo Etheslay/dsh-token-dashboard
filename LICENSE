@@ -19,13 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-The number formatting, progress-bar geometry, and panel layout in this package
-are reimplementations of behaviour in OpenAI's Codex
-(https://github.com/openai/codex), which is licensed under the Apache License,
-Version 2.0. The specific functions and their source locations are named in the
-doc comments of `src/shared/format.ts` and `src/client/panel.tsx`. No Codex
-source code is copied or redistributed here; only the observable formatting
-rules were reproduced.

@@ -224,4 +224,4 @@ ES module stays cached in the Node process.) See [`tools/README.md`](tools/READM
 
 ## License
 
-MIT. The Codex formatting rules reproduced here originate in Apache-2.0 code; see [LICENSE](LICENSE).
+MIT. The Codex formatting rules reproduced here originate in Apache-2.0 code; see [LICENSE](LICENSE) for the licence and [NOTICE](NOTICE) for what was reproduced and from where.
