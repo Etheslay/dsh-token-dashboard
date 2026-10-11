@@ -1,225 +1,183 @@
 # dsh-token-dashboard
 
-Token-usage profile panel for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) — a Codex-style usage report inside **Settings**.
+[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的用量统计面板 —— 在**设置**里放一份 Codex 风格的 token 用量报告。
 
-**English** | [中文](README.zh.md)
+[English](README.en.md) | **中文**
 
-![Usage panel](docs/panel-dark.png)
+![用量面板](docs/panel-dark.png)
 
-> The screenshot is real output: `npm run preview` folds this machine's actual
-> session logs and renders the panel with the theme tokens lifted verbatim from
-> the DSH shell. See [`scripts/preview.mjs`](scripts/preview.mjs).
+> 截图是真实输出：`npm run preview` 折叠本机真实的会话日志，并用从 DSH shell 原样取出的主题变量渲染面板。见 [`scripts/preview.mjs`](scripts/preview.mjs)。
 
-## What it shows
+## 面板内容
 
-Top to bottom:
+自上而下：
 
-| Block | Content |
+| 区块 | 内容 |
 |---|---|
-| Identity | Avatar, display name, and handle from the signed-in DeepSeek account. Hidden when signed out. |
-| Five numbers | `Lifetime tokens` · `Peak tokens` · `Longest chat` · `Longest streak` · `Current streak` |
-| `Token activity` | A year of contribution cells, drawn as two stacked six-month blocks, with **Daily · Weekly · Cumulative** modes and a `Less ▢▢▢▢▢ More` ramp |
-| `Insights` | `Most used reasoning` · `Most used model` · `Skills explored` · `Total skills used` · `Total chats` · `Total turns` · `Cache hit rate` |
-| `Most used` | The skills invoked most often, as `$name` with a run count |
+| 五个数字 | `累计 Token 数` · `Token 使用峰值` · `最长任务用时` · `最长连续天数` · `当前连续天数` |
+| `Token 活动` | 一整年的贡献格子，分上下两块、每块六个月，带 **每天 · 每周 · 累计总量** 三种模式与 `少 ▢▢▢▢▢ 多` 色阶 |
+| `洞察` | `最常用的推理强度` · `最常用的模型` · `已探索技能数` · `使用的技能总数` · `总会话数` · `总轮次` · `缓存命中率` |
+| `最常使用` | 调用最多的技能，写作 `$名称` 加运行次数 |
 
-Everything is all-time, so there is no range control to set. The heatmap is the
-only time axis.
+所有数字都是累计值，因此没有区间选择器 —— 热力图就是唯一的时间轴。
 
-The year is split into **two six-month blocks rather than one long row**. A
-single row needs 53 columns, which at a readable cell size is wider than a
-settings panel and turns into a horizontal scrollbar; halving it leaves ~26
-columns per block, so the cells stay legible and a whole year fits without
-scrolling at any panel width.
+一年被拆成**上下两个六个月的分块**，而不是一条长行。单行需要 53 列，在能看清的格子尺寸下比设置面板还宽，必然出现横向滚动条；一分为二后每块约 26 列，格子仍然清楚，任何面板宽度下整年都能放下。
 
-The window is **Sunday-aligned and an even number of weeks**, trimmed by up to
-six days if it would otherwise be odd (`heatmapWindow` in `src/host/aggregate.ts`).
-An odd column count cannot be halved: one block would come up a column short and
-the two rows would end at different x positions, which reads as a table missing a
-column. Trimming a few days off the start of a year of history is invisible next
-to that.
+窗口按**周日对齐、且为偶数周**（`src/host/aggregate.ts` 的 `heatmapWindow`）。奇数总列数无法对半分 —— 必然有一块少一列，两块右边缘不齐，看起来就像下表少了一列。为此最多从窗口开头裁掉 6 天：放在一整年的历史里看不出来，比两行参差划算得多。
 
-The grid is padded forward to the end of the current week, so every column holds
-seven days whatever weekday today is. Those trailing days are marked `future`:
-they keep their place and their empty colour, and they claim nothing — no date in
-the accessibility tree, no tooltip, no hover readout.
+网格会向后补到本周结束，所以无论今天是星期几，每一列都是完整的七天。这些补出来的日子带 `future` 标记：占位、留空色，但**不声称任何东西** —— 不进无障碍树、没有 tooltip、不参与悬停读数。
 
-**A column is a week, in every mode.** Daily draws one day per cell, Weekly
-repeats its column's total across all seven, and Cumulative carries a running
-total forward. Weekly therefore names a cell by its week — `week of 3 May 2026` —
-rather than by the weekday it happens to sit on.
+**每一列都是一周。**「每天」每格画一天，「每周」把整列的总量铺满七格，「累计总量」则把累计值往前带。因此「每周」模式用一个日期命名格子时，用的是**那一周的周日**（`week of 3 May 2026` / `2026年5月3日 起的一周`），而不是它恰好落在的星期几。
 
-### The layout is sized by the panel, not by a number
+### 尺寸由面板决定，不由写死的像素决定
 
-The heatmap's width is derived rather than hard-coded:
+热力图的宽度是推导出来的，不是写死的：
 
 ```css
 width: min(100%, calc(var(--tdd-heat-columns) * (var(--tdd-heat-cell) + var(--tdd-heat-gap)) - var(--tdd-heat-gap)))
 ```
 
-`--tdd-heat-columns` is set by the panel from the grid it actually built, so a
-52-week year and a 53-week year both size correctly and the cells, the month axis
-and the axis's idea of where column *i* starts are all one derivation. The grid
-fills the panel up to a maximum cell size and stops there, which means it lines
-up with the blocks above and below it at every window width instead of drifting
-away from them behind a fixed pixel ceiling.
+`--tdd-heat-columns` 由面板根据自己实际建出来的网格写入，所以 52 周和 53 周的年份都能算对，
+格子、月份轴、以及"第 i 列的左边缘在哪"三者共用同一套推导。网格会一直填满面板，
+直到格子达到上限尺寸才停 —— 于是在任何窗口宽度下，它都和上下两个区块对齐，
+而不会因为一个写死的像素上限飘到一边去。
 
-**The panel does not scroll.** The settings dialog already scrolls its own body,
-so a `height:100%; overflow-y:auto` here produced a second scrollbar inside the
-dialog's. Vertical overflow belongs to the host; scrolling is not the panel's to
-own.
+**面板自己不滚动。** 设置对话框本来就在滚自己的内容区，再叠一个
+`height:100%; overflow-y:auto` 就会在对话框的滚动条里再套一条。纵向溢出归宿主管，
+滚动不归面板管。
 
-## Why it looks like Codex
+## 为什么长得像 Codex
 
-The panel reproduces the **analytics Overview report** — the profile summary
-Codex opens from `/usage`. (Codex has three usage surfaces; the `/status` card
-is a different one, and it is not this.)
+面板复刻的是 Codex 的 **analytics Overview 报告**，也就是从 `/usage` 打开的那份
+个人用量摘要。（Codex 一共有三个用量界面，`/status` 卡片是另一个，不是这个。）
 
-Every formatting rule is a port of a named Rust function, quoted in the doc
-comment beside each one:
+每条格式化规则都是对某个具名 Rust 函数的移植，源码引在对应函数的文档注释里：
 
-| This package | Codex source |
+| 本包 | Codex 源码 |
 |---|---|
-| `compactAmount`, `countValue`, `formatDuration` | `tui/src/analytics/{data,summary_panel}.rs` |
-| `formatTokensCompact` | `tui/src/status/helpers.rs` |
-| `renderLimitProgressBar` | `tui/src/status/rate_limits.rs` |
-| `percentOfContextWindowRemaining` | `tui/src/token_usage.rs` |
+| `compactAmount`、`countValue`、`formatDuration` | `tui/src/analytics/{data,summary_panel}.rs` |
 | `formatAbsoluteTime` | `tui/src/status/helpers.rs` |
 
-`compactAmount`, `countValue`, `formatDuration` and `formatAbsoluteTime` are the
-ones this layout renders. The rest are kept — and unit-tested — because they are
-the same port from the same files, not because a surface currently calls them.
+这四条就是面板真正会渲染的全部。没有别的可列：这个面板不画的 Codex 界面 —— 限流进度条、上下文窗口计量、柱状图色阶 —— 就不再移植，写在这里等于承诺一个面板没有的功能。
 
-The activity ramp is the reference panel's **purple**, five steps from `#ddd0fb` to
-`#5f21c9`. `tools/sample-shot.mjs` decodes a PNG with no dependency, so a swatch
-of the reference graph can be measured rather than eyeballed.
+热力图那套色阶是参考面板的**紫色**，五档从浅到深：`#ddd0fb` → `#5f21c9`。
+`tools/sample-shot.mjs` 用零依赖的方式解 PNG，所以参考图里的色块可以被测量而不是靠肉眼。
 
-**Darker means more.** Level 1 is the faintest purple and level 4 the deepest,
-most saturated one, so the heaviest day is the visually heaviest cell. Both
-themes run pale → deep: the dark theme does *not* brighten as usage rises, which
-is a deliberate departure from the reference (it did) because brighter-for-more
-reads backwards next to every other quota meter. `tests/render.test.mjs` asserts
-the rule rather than the hex values — every level must be darker and more
-saturated than the one below it, in both themes. Each theme's step 0 is its own
-quiet nested surface, not the reference's `#181818`, which is nearly invisible on
-DSH's dark background.
+**颜色越深 = 消耗越大。** 第 1 档是最淡的紫，第 4 档最深、最饱和 —— 用量最重的那天
+就是格子里最"重"的那一格。两个主题都是浅 → 深：深色主题**不会**随用量变亮，
+这是相对参考面板的一处刻意偏离（它确实是变亮的），因为"越亮越多"和其他所有
+配额表都反着来。测试断言的是这条**规则**而不是具体色值：每一档必须比下一档更深、
+更饱和。第 0 档用各主题自己的素净嵌套表面色，而不是参考面板的 `#181818` ——
+后者在 DSH 的深色底上几乎看不见。
 
-### Numbers follow the UI language
+### 数字跟随界面语言
 
-This is the one place a straight English port would have been visibly wrong. A
-Chinese panel reads **`3.7亿`** and **`5317.1万`**, not `370M` and `53.2M`, and a
-duration is **`46分59秒`**, not `46m 59s`. `localeCompact` / `localeDuration` /
-`localeCount` own that split, and `tests/render.test.mjs` asserts the exact
-strings from the reference screenshots.
+这是照搬英文版会明显出错的地方。中文面板读的是 **`3.7亿`**、**`5317.1万`**，
+不是 `370M`、`53.2M`；时长读的是 **`46分59秒`**，不是 `46m 59s`。
+`localeCompact` / `localeDuration` / `localeCount` 负责这个分叉，
+`tests/render.test.mjs` 用参考截图里的原值逐一断言。
 
-### Four deliberate deviations
+### 四处刻意的不一致
 
-Copying Codex literally would have been wrong in these four places:
+这几处照抄 Codex 反而是错的：
 
-1. **Nothing is claimed that DSH cannot measure.** Codex's panel shows credits,
-   a plan name, an account email, and 5-hour / weekly / monthly rate-limit
-   windows. DSH has none of those, so none of them are here — not even as a
-   placeholder bar with an invented denominator. The metrics that remain are
-   each backed by a field the session log actually writes.
-2. **English pluralization is fixed.** Codex prints `{days} days` with no
-   singular, so a one-day streak reads `1 days`. That is grammar, not design.
-3. **`Most used model` ranks by tokens, not by reply count.** A hundred cheap
-   replies should not outrank the one model that spent the budget.
-4. **A darker cell means a heavier day, in both themes.** Codex brightens its
-   dark theme as usage rises; that reads backwards next to every other quota
-   meter, so the dark ramp runs pale → deep like the light one.
+1. **不编造 DSH 量不出来的东西。** Codex 面板会显示额度、套餐名、账号邮箱，以及
+   5 小时 / 每周 / 每月速率窗口。DSH 一个都没有，所以这里一个都不放 —— 连"画一根
+   分母是编出来的进度条"这种事也不做。留下来的每一项都有会话日志里真实存在的字段。
+2. **修了英文单复数。** Codex 写死 `{days} days`，没有单数，于是连续一天会显示
+   `1 days`。那是语法问题，不是设计。
+3. **`最常用的模型` 按 token 排，不按回复条数。** 一百条便宜回复不该压过那个真正
+   花掉预算的模型。
+4. **颜色越深 = 用量越重，两个主题一致。** Codex 的深色主题是随用量变亮的，
+   那和其他所有配额表都反着来，所以这里的深色色阶和浅色一样是浅 → 深。
 
-## Install
+## 安装
 
 ```sh
 dsh plugin add @etheslay/dsh-token-dashboard
 ```
 
-Then open **Settings → Usage**.
+然后打开 **设置 → 用量**。
 
-To install by hand, add the package to your profile and list it under `dsh.profile.bundles` in the profile's `package.json`.
+手动安装：把包加进 profile，并在该 profile 的 `package.json` 的 `dsh.profile.bundles` 里登记。
 
-## How it works
+## 工作原理
 
-The package ships two halves, as `dsh.client` declares:
+按 `dsh.client` 的声明，本包分两半：
 
-**Host half** (`lib/index.js`) reads `$DSH_HOME/sessions/**/session.v*.jsonl.zstd`, decodes them, and folds token usage. It registers one read-only route, `GET /dsh-token-dashboard/api/stats`, on `ctx.webServer`.
+**宿主半侧**（`lib/index.js`）读取 `$DSH_HOME/sessions/**/session.v*.jsonl.zstd`，解压并折叠出用量，然后在 `ctx.webServer` 上注册唯一一条只读路由 `GET /dsh-token-dashboard/api/stats`。
 
-**Browser half** (`lib/client.js`) registers one `settings.section` page and renders the snapshot. It does no measuring of its own.
+**浏览器半侧**（`lib/client.js`）注册一个 `settings.section` 页面，把宿主算好的快照渲染出来，自己不做任何统计。
 
-### The snapshot is a published type
+### 快照是一个公开类型
 
-The route answers with a `UsageSnapshot`, and that shape is exported from the package root, so a script, a test harness, or a second panel can type the payload instead of restating it:
+这条路由返回的是 `UsageSnapshot`，而这个形状从包根导出 —— 脚本、测试台、或者第二个面板都可以直接引用它，不必自己再抄一遍：
 
 ```ts
 import type { UsageSnapshot, StatsQuery } from '@etheslay/dsh-token-dashboard'
 ```
 
-`lib/types/host/index.d.ts` is emitted from `src/host/index.ts` — the same module `lib/index.js` bundles — and the build fails outright rather than publishing declarations that do not match the code. The browser half's exports (`buildHeatmap`, `heatCellDescription`, …) resolve from the `./client` subpath.
+`lib/types/host/index.d.ts` 由 `src/host/index.ts` 生成，也就是 `lib/index.js` 打包的同一个模块；声明与代码对不上时构建会直接失败，而不是把不一致的声明发出去。浏览器半侧的导出（`buildHeatmap`、`heatCellDescription` 等）走 `./client` 子路径。
 
-### Four things the Host half has to get right
+### 宿主半侧必须处理对的四件事
 
-**Session logs are multi-frame zstd.** Each persistence flush appends its own zstd frame, and Node's `zstdDecompressSync` — and `createZstdDecompress` — decode only the *first* frame and return successfully. A naive reader sees a 6 MB log as one 196-byte header line and reports zero usage. This package splits the stream on frame magic and decodes each frame, treating only an undecodable final frame as normal (a live session's tail is written while you read it).
+**会话日志是多帧 zstd。** 每次持久化刷盘都会追加一个独立的 zstd 帧，而 Node 的 `zstdDecompressSync`（以及 `createZstdDecompress`）只解第一帧就成功返回。天真写法会把一份 6 MB 的日志看成一行 196 字节的头部，统计结果为零。本包按帧魔数切分后逐帧解压，只把"最后一帧解不开"当作正常情况（正在写入的会话尾部本来就可能不完整）。
 
-**Newer log-format versions are not automatically better.** A session directory accumulates `session.v3`, `session.v4`, … where the newer file is a rewrite of the same conversation. But a rewrite that was interrupted leaves a *shorter* newer file with undecodable frames. On the machine this was developed on, one session has a healthy 3563-event `v3` next to a truncated 245-event `v4` — taking the highest version silently discarded **191.7M tokens, 56% of the store's total**. Every version present is therefore decoded and the one with the furthest durable `seq` wins.
+**日志格式版本号更高不等于更完整。** 同一个会话目录会累积 `session.v3`、`session.v4`……新版本是同一段对话的重写。但一次被中断的重写会留下一个*更短*、且带损坏帧的新文件。本插件的开发机上就有一个会话：健康的 `v3` 有 3563 个事件，而 `v4` 被截断到 245 个 —— 取最高版本会静默丢掉 **1.917 亿 token，占整机总量的 56%**。所以这里会把存在的每个版本都读一遍，取持久化序号 `seq` 最靠前的那个。
 
-**Usage samples are replaced, not accumulated.** A streamed assistant message can report usage more than once for the same `(turn, step)`, and `llm/retry-started` closes that slot so a retried attempt counts again. The fold mirrors DSH's own `tokenUsage` projection exactly. Verified against a full store: the fold matches an independent naive sum of every `assistant/message` record on all four buckets, across 2,600+ records. The same rule governs the response counts: **one settlement is one response in every tally** — session, day, and route — so a streamed re-report *moves* a count rather than adding one, and only a retried step counts twice.
+**用量样本是"替换"而非"累加"。** 一条流式助手消息可能对同一个 `(turn, step)` 上报多次用量，而 `llm/retry-started` 会关闭替换槽，让重试的那次单独计入。折叠逻辑与 DSH 自己的 `tokenUsage` 投影逐行对应。已用完整会话库验证：在四个桶上与独立求和的每条 `assistant/message` 记录完全一致，覆盖 2600 多条记录。响应次数遵循同一条规则：**一个结算槽在任何口径下都只算一次响应** —— 会话总量、按天、按路由三者必然相等 —— 所以流式重报是"搬走"一次计数而不是新增一次，只有重试的那一步才算第二次。
 
-**A day is a day, not a session.** `Peak tokens` is the maximum over the *aggregated* day buckets. Reading each session's own busiest day instead under-reported the peak by 53% here, because two sessions had run on the same date.
+**一天是一天，不是一个会话。** `Token 使用峰值` 取的是**聚合后**每日桶的最大值。改成读各会话自己最忙的那天，在这台机器上会少报 53% —— 因为有一天有两个会话在跑。
 
-### Updating
+### 更新时
 
-The two halves do not reload together. The module system hot-swaps the browser
-bundle, but the Host half is a cached ES module that only a DSH restart replaces.
-When the browser half sees a snapshot from an older Host it says **"restart
-DSH"** rather than dereferencing a field that is not there and blanking the
-settings dialog.
+两侧不会一起重载。模块系统会热替换浏览器包，但宿主半侧是 Node 进程里被缓存的 ES
+模块，只有重启 DSH 才会换掉。浏览器侧一旦读到旧宿主发来的快照，会直接提示
+**"插件已更新，需要重启 DSH"**，而不是去取一个不存在的字段、把整个设置面板弄白。
 
-### Cost
+### 开销
 
-The first scan of a 20-session, 600 MB store takes about a second. Results are memoized per `(size, mtimeMs)`, so later refreshes only decode logs that changed, and snapshots are reused for 5 seconds. The account lookup that feeds the identity block is cached for 5 minutes and is skipped entirely when no account service is present.
+首次扫描 20 个会话、约 600 MB 的库需要约一秒。结果按 `(size, mtimeMs)` 记忆化，之后刷新只解压有变化的日志，快照本身还有 5 秒复用窗口。可选的账号查询缓存 5 分钟，账号子系统未挂载时会被完全跳过。
 
-### Privacy
+### 隐私
 
-Read-only. The plugin never writes, never calls a model, and never sends prompt or message content anywhere — it reads only the numeric `usage` records. The HTTP route is served by the same local webserver as the rest of the DSH GUI.
+只读。插件不写盘、不调用模型、不把提示词或消息内容发往任何地方 —— 它只读数值型的 `usage` 记录。HTTP 路由由 DSH GUI 本地的同一个 webserver 提供。
 
-## Compatibility
+## 兼容性
 
-- DSH 0.2.x (`@deepseek-ai/dsh-web-app`, `dsh-client-ui-settings`)
-- Node ≥ 22.18 (`engines`; the bundled-zstd APIs need ≥ 22.15, and the test and
-  preview scripts import `src/**/*.ts` directly, which needs unflagged type
-  stripping)
-- No runtime dependencies: the package imports only `node:*` on the Host side and resolves React and the UI primitives from the shell's module table on the browser side
+- DSH 0.2.x（`@deepseek-ai/dsh-web-app`、`dsh-client-ui-settings`）
+- Node ≥ 22.18（`engines` 字段；内置 zstd API 只需 22.15，但测试与预览脚本直接 import `src/**/*.ts`，需要默认开启的类型擦除）
+- 无运行时依赖：宿主侧只 import `node:*`，浏览器侧从 shell 的模块表解析 React 与 UI 基础组件
 
-## Develop
+## 开发
 
 ```sh
 npm install
 npm run build            # lib/index.js + lib/client.js + lib/types
 npm run typecheck
-npm test                 # fold unit tests, Codex-format render tests, browser-bundle loader check, live-log cross-check
-npm run preview          # write docs/panel.html from your own session store
-npm run check:layout     # measure the real panel's geometry in headless Chrome
-npm run refresh:profile  # repack + reinstall into the DSH profile the app loads
+npm test                 # 折叠单元测试、格式与渲染测试、浏览器包加载检查、真实日志交叉验证
+npm run preview          # 用你自己的会话库生成 docs/panel.html
+npm run check:layout     # 在无头 Chrome 里实测面板几何
+npm run refresh:profile  # 重新打包并装进 app 实际加载的 profile
 ```
 
-**Editing `src/` does not change what DSH runs.** A profile installs this package
-from a packed tarball, so the app loads its own copy under
-`<profile>/node_modules/@etheslay/dsh-token-dashboard/`. Until that copy is refreshed, a fix
-is invisible — which is exactly how a repaired double scrollbar kept showing up in
-the panel. `npm run refresh:profile` repacks and reinstalls it; reload the page
-afterwards. (A change to the Host half also needs a DSH restart, since a replaced
-ES module stays cached in the Node process.) See [`tools/README.md`](tools/README.md).
+**改 `src/` 不等于改了 app 跑的东西。** profile 是用打好包的 tgz 安装本插件的，
+所以 app 加载的是它自己那份 `<profile>/node_modules/@etheslay/dsh-token-dashboard/`。
+在那份被刷新之前，修复是不可见的 —— 这正是"滚动条明明修好了却还在"的原因。
+`npm run refresh:profile` 负责重新打包并覆盖安装，之后刷新页面即可。
+（改动宿主半侧还需要重启 DSH，因为被替换的 ES 模块会缓存在 Node 进程里。）
+见 [`tools/README.md`](tools/README.md)。
 
-`tests/host-route.test.mjs` runs the built plugin against your real `$DSH_HOME/sessions` and asserts the fold matches an independent sum of the same logs. It skips cleanly when no session store exists.
+`tests/host-route.test.mjs` 会拿构建产物去跑你真实的 `$DSH_HOME/sessions`，并断言折叠结果与对同一批日志的独立求和一致；没有会话库时会干净跳过。
 
-`tests/fold.test.mjs` covers what a live store cannot: DSH writes one `assistant/message` per step, so the replacement path and its response counting never execute there. Synthetic events exercise a streamed re-report, a retry that must count twice, a replacement that lands on another local day, a usage sample that only exists inside the settlement's stream, and an unstamped event.
+`tests/fold.test.mjs` 补的是真实会话库覆盖不到的部分：DSH 每个 step 只写一条 `assistant/message`，所以替换分支与它的响应计数在真机上从不执行。这里用合成事件跑流式重报、必须计两次的重试、跨本地日的替换、只存在于结算流里的用量、以及没有时间戳的事件。
 
-`tests/render.test.mjs` asserts the formatting rules against values taken from the Rust source and the localized units taken from the reference panel, then renders the whole report to check the identity block, the five-cell bar, the heatmap's week alignment and three modes, the insights, the empty and error states, and both dictionaries.
+`tests/render.test.mjs` 用取自 Rust 源码的期望值校验格式化规则、用参考面板的原值校验本地化单位，然后完整渲染一遍报告，检查五格数字条、热力图的周对齐与三种模式、洞察区、空态与错误态，以及两种语言的字典。
 
-`npm run check:layout` covers what markup assertions cannot: it renders the panel in headless Chrome and measures it, because the two-scrollbar bug and the heatmap that stopped short of the panel's edge were both invisible to a DOM check. Point it at `docs/panel.html` to measure with your own data. See [`tools/README.md`](tools/README.md).
+`npm run check:layout` 补的是标记断言看不到的那一层：它在无头 Chrome 里渲染并**实测**面板。两条滚动条的问题、以及热力图没铺满面板、与上下区块对不齐的问题，都躲过了 DOM 检查 —— 只有浏览器解完网格、flex 列和对话框滚动几何之后它们才存在。把它指向 `docs/panel.html` 就能用你自己的数据测量。见 [`tools/README.md`](tools/README.md)。
 
-`tools/sample-shot.mjs` decodes a PNG with no dependency so a screenshot can be measured rather than eyeballed — that is where the ramp comes from.
+`tools/sample-shot.mjs` 用零依赖的方式解 PNG，好让截图能被测量而不是靠肉眼 —— 色阶就是从那里来的。
 
-## License
+## 许可
 
-MIT. The Codex formatting rules reproduced here originate in Apache-2.0 code; see [LICENSE](LICENSE).
+MIT。此处复刻的 Codex 格式化规则源自 Apache-2.0 代码，详见 [LICENSE](LICENSE)。
