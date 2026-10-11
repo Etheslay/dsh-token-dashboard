@@ -1,21 +1,33 @@
 # Changelog
 
 Notable changes to `@etheslay/dsh-token-dashboard`. The version numbers are the
-published npm versions; entries under **Unreleased** are in the repository but
-not in a published tarball yet.
+published npm versions.
 
-## Unreleased
+## 0.1.1
 
-Documentation and licence only — no functional change.
+Documentation, metadata and licence only — no functional change. `src/` and
+`cordis.patch.yml` are byte-identical to 0.1.0.
 
+- The install command gained the `--profile` flag it always needed. `dsh plugin`
+  rejects a missing `--profile` — `error: required option '--profile <name>' not
+  specified` — so the command 0.1.0 documented could not run. `--registry` is
+  shown explicitly as well: the default registry in mainland China had not yet
+  synced this scoped package when it was published.
+- The READMEs lead with the install route and gained **Updates** and
+  **Verifying the install** sections plus an "ask an agent to install it"
+  prompt. Both languages carry the same nine sections; `tests/readme.test.mjs`
+  enforces that, along with a check that every file the READMEs link or embed
+  is listed in `files`.
+- `engines.dsh` now declares the Host range this version was verified against,
+  so the plugin market can show it on the card. The `@deepseek-ai/dsh-*` peers
+  stay at `*` on purpose: the Host install gate checks those peers and ignores
+  `optional`, so a permissive range there means a future Host never silently
+  disables the plugin.
+- The package description no longer advertises a context-occupancy readout the
+  panel does not render.
 - `LICENSE` holds the MIT text alone; the Codex provenance paragraph moved to
-  `NOTICE`, which is why GitHub and licensee now report **MIT** instead of
-  `NOASSERTION`. `NOTICE` ships in the tarball.
-- The README leads with the install route, and both languages carry the same
-  sections. `tests/readme.test.mjs` enforces that they stay in step.
-- The install command gained the `--profile` flag it always needed:
-  `dsh plugin` rejects a missing `--profile`, so the previously documented
-  command could not run.
+  `NOTICE`, which is why GitHub and licensee report **MIT** instead of
+  `NOASSERTION`. `NOTICE` and `CHANGELOG.md` ship in the tarball.
 
 ## 0.1.0
 
