@@ -22,14 +22,7 @@
  * @module dsh-token-dashboard/host/fold
  */
 import type { RawLogEvent } from './session-log.ts'
-import type {
-  ContextPressure,
-  CountedBuckets,
-  DayRouteUsage,
-  DayUsage,
-  RouteUsage,
-  TokenBuckets,
-} from '../shared/types.ts'
+import type { ContextPressure, CountedBuckets, DayUsage, RouteUsage } from '../shared/types.ts'
 
 /** Mutable accumulator with the raw projection bucket names. */
 interface Buckets {
@@ -68,15 +61,6 @@ interface DayAccumulator {
   responses: number
 }
 
-/** One `(day, route)` cell, so a range-filtered model breakdown stays exact. */
-interface DayRouteAccumulator {
-  date: string
-  provider: string
-  model: string
-  responses: number
-  buckets: Buckets
-}
-
 /** The fold's complete result for one session. */
 export interface SessionFold {
   /** Projection-equivalent totals for the whole log. */
@@ -85,19 +69,16 @@ export interface SessionFold {
   routes: Map<string, RouteAccumulator>
   /** Per-day totals keyed by `YYYY-MM-DD` in the requested zone. */
   days: Map<string, DayAccumulator>
-  /**
-   * Per-`(day, route)` totals, keyed by `date\0provider\0model`.
-   *
-   * Kept separately from {@link SessionFold.routes} because a range-filtered
-   * model breakdown must not attribute the whole log's tokens to the days that
-   * happen to fall inside the window.
-   */
-  dayRoutes: Map<string, DayRouteAccumulator>
   /** Turns started in the log. */
   turns: number
-  /** Turns that reached a `turn/end`, and so have a measurable duration. */
-  completedTurns: number
-  /** Assistant settlements recorded in the log. */
+  /**
+   * Assistant settlements recorded in the log, counted per `(turn, step)` slot.
+   *
+   * A retried step opens a new slot and so counts twice; a streamed re-report
+   * of the same slot replaces its predecessor and counts once. This is the same
+   * basis as every `responses` on the route and day accumulators, so the four
+   * tallies always agree.
+   */
   responses: number
   /** Wall-clock duration of the longest completed turn, in milliseconds. */
   longestTurnMs: number
@@ -116,8 +97,6 @@ export interface SessionFold {
   skills: Map<string, number>
   /** Epoch milliseconds of the newest event. */
   updatedAt: number
-  /** Lines that failed to parse; a truncated live tail is normal. */
-  malformed: number
 }
 
 /** Options controlling day bucketing. */
@@ -134,7 +113,13 @@ const zeroBuckets = (): Buckets => ({
   reasoningTokens: 0,
 })
 
-/** Sum the four billed buckets plus reasoning; reasoning is not added twice. */
+/**
+ * Sum the four billed buckets.
+ *
+ * `reasoningTokens` is deliberately excluded: it is a SUBSET of
+ * `outputTokens`, so adding it would bill the same tokens twice. Matches the
+ * reference's own `usageTokens()`.
+ */
 function totalOf(buckets: Buckets): number {
   return buckets.uncachedInputTokens + buckets.cacheReadTokens + buckets.cacheWriteTokens + buckets.outputTokens
 }
@@ -164,6 +149,22 @@ function count(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined
 }
 
+/**
+ * Read a provider-reported token count.
+ *
+ * Providers report integers, but a dashboard must never let one malformed field
+ * delete a measurement: a finite non-integer is rounded to the nearest whole
+ * token instead of being dropped to zero. Anything unusable (absent, negative,
+ * `NaN`, a string) becomes `0`, which is the same value the reference's
+ * `?? 0` yields for an absent field.
+ * @param value - The raw `usage` field.
+ * @returns A whole, non-negative token count.
+ */
+function tokens(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return 0
+  return Number.isSafeInteger(value) ? value : Math.round(value)
+}
+
 /** Narrow an unknown value to a plain object. */
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : undefined
@@ -175,11 +176,11 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
  */
 function bucketsFrom(usage: Record<string, unknown>): Buckets {
   return {
-    uncachedInputTokens: count(usage['inputTokens']) ?? 0,
-    outputTokens: count(usage['outputTokens']) ?? 0,
-    cacheReadTokens: count(usage['cacheReadTokens']) ?? 0,
-    cacheWriteTokens: count(usage['cacheWriteTokens']) ?? 0,
-    reasoningTokens: count(usage['reasoningTokens']) ?? 0,
+    uncachedInputTokens: tokens(usage['inputTokens']),
+    outputTokens: tokens(usage['outputTokens']),
+    cacheReadTokens: tokens(usage['cacheReadTokens']),
+    cacheWriteTokens: tokens(usage['cacheWriteTokens']),
+    reasoningTokens: tokens(usage['reasoningTokens']),
   }
 }
 
@@ -311,10 +312,8 @@ export function foldSession(events: readonly RawLogEvent[], options: FoldOptions
   const totals = zeroBuckets()
   const routes = new Map<string, RouteAccumulator>()
   const days = new Map<string, DayAccumulator>()
-  const dayRoutes = new Map<string, DayRouteAccumulator>()
   let last: Contribution | null = null
   let turns = 0
-  let completedTurns = 0
   let responses = 0
   let longestTurnMs = 0
   let updatedAt = 0
@@ -326,6 +325,16 @@ export function foldSession(events: readonly RawLogEvent[], options: FoldOptions
   const selections = new Map<string, number>()
   /** Start instants of turns not yet closed, keyed by turn number. */
   const openTurns = new Map<number, number>()
+  /**
+   * Newest usable event time.
+   *
+   * An event whose `time` is missing or unusable inherits this instead of being
+   * charged to `1970-01-01`, which would invent a day bucket no calendar
+   * contains. Only a log whose very first event is unreadable still falls back
+   * to epoch zero, which keeps the invariant that the day buckets sum to the
+   * total.
+   */
+  let lastUsableTime = 0
 
   const dayFor = (accumulatorDay: string): DayAccumulator => {
     let entry = days.get(accumulatorDay)
@@ -346,20 +355,12 @@ export function foldSession(events: readonly RawLogEvent[], options: FoldOptions
     return entry
   }
 
-  const dayRouteKey = (date: string, provider: string, model: string): string => `${date}\u0000${provider}\u0000${model}`
-
-  const dayRouteFor = (date: string, provider: string, model: string): DayRouteAccumulator => {
-    const key = dayRouteKey(date, provider, model)
-    let entry = dayRoutes.get(key)
-    if (entry === undefined) {
-      entry = { date, provider, model, responses: 0, buckets: zeroBuckets() }
-      dayRoutes.set(key, entry)
-    }
-    return entry
-  }
-
   for (const event of events) {
-    const time = typeof event.time === 'number' && Number.isFinite(event.time) ? event.time : 0
+    let time = lastUsableTime
+    if (typeof event.time === 'number' && Number.isFinite(event.time) && event.time > 0) {
+      time = event.time
+      lastUsableTime = time
+    }
     if (time > updatedAt) updatedAt = time
     const data = asRecord(event.data)
 
@@ -382,7 +383,7 @@ export function foldSession(events: readonly RawLogEvent[], options: FoldOptions
       const startedAt = turnNumber === undefined ? undefined : openTurns.get(turnNumber)
       if (turnNumber !== undefined && startedAt !== undefined && time >= startedAt) {
         longestTurnMs = Math.max(longestTurnMs, time - startedAt)
-        completedTurns++
+        // Cleared so a duplicate `turn/end` cannot measure the same turn twice.
         openTurns.delete(turnNumber)
       }
       continue
@@ -444,14 +445,20 @@ export function foldSession(events: readonly RawLogEvent[], options: FoldOptions
     const day = dayKeyInZone(time, options.timeZone)
 
     if (previous !== undefined) {
+      // Everything the previous sample contributed is reversed — including its
+      // RESPONSE COUNT. A replacement is still one settlement of one
+      // `(turn, step)` slot, so it must move the count to the new day (or leave
+      // it where it is) rather than add a second one. Without the two `--`
+      // below, `totals.responses` and `day.responses` count SAMPLES while
+      // `route.responses` counts SLOTS, and the four tallies disagree.
       addInto(totals, previous.buckets, -1)
-      addInto(dayFor(previous.day).buckets, previous.buckets, -1)
+      const previousDay = dayFor(previous.day)
+      addInto(previousDay.buckets, previous.buckets, -1)
+      previousDay.responses--
       const previousRoute = routeFor(previous.provider, previous.model)
       addInto(previousRoute.buckets, previous.buckets, -1)
       previousRoute.responses--
-      const previousDayRoute = dayRouteFor(previous.day, previous.provider, previous.model)
-      addInto(previousDayRoute.buckets, previous.buckets, -1)
-      previousDayRoute.responses--
+      responses--
     }
 
     addInto(totals, buckets, 1)
@@ -461,9 +468,6 @@ export function foldSession(events: readonly RawLogEvent[], options: FoldOptions
     const routeEntry = routeFor(provider, model)
     addInto(routeEntry.buckets, buckets, 1)
     routeEntry.responses++
-    const dayRouteEntry = dayRouteFor(day, provider, model)
-    addInto(dayRouteEntry.buckets, buckets, 1)
-    dayRouteEntry.responses++
     responses++
 
     last = { turn, step, buckets, day, provider, model }
@@ -480,9 +484,7 @@ export function foldSession(events: readonly RawLogEvent[], options: FoldOptions
     totals: counted(totals),
     routes,
     days,
-    dayRoutes,
     turns,
-    completedTurns,
     responses,
     longestTurnMs,
     ...(context === undefined ? {} : { context }),
@@ -490,7 +492,6 @@ export function foldSession(events: readonly RawLogEvent[], options: FoldOptions
     efforts: efforts.size > 0 ? efforts : selections,
     skills,
     updatedAt,
-    malformed: 0,
   }
 }
 
@@ -514,16 +515,5 @@ export function dayToWire(date: string, accumulator: DayAccumulator): DayUsage {
   }
 }
 
-/** Convert a `(day, route)` cell into its wire form. */
-export function dayRouteToWire(accumulator: DayRouteAccumulator): DayRouteUsage {
-  return {
-    date: accumulator.date,
-    provider: accumulator.provider,
-    model: accumulator.model,
-    responses: accumulator.responses,
-    ...counted(accumulator.buckets),
-  }
-}
-
 export { totalOf, counted, addInto, zeroBuckets }
-export type { Buckets, DayAccumulator, RouteAccumulator, DayRouteAccumulator }
+export type { Buckets, DayAccumulator, RouteAccumulator }

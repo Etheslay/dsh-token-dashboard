@@ -4,23 +4,15 @@ import fs from 'node:fs'
 import path from 'node:path'
 import zlib from 'node:zlib'
 import { splitZstdFrames } from '../src/host/session-log.ts'
+import { listLogs, requireSessionsRoot } from './session-store.mjs'
 
-const ROOT = path.join(process.env.DSH_HOME ?? 'C:/Users/wu/.dsh', 'sessions')
-
-function walk(dir, out = []) {
-  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-    const p = path.join(dir, e.name)
-    if (e.isDirectory()) walk(p, out)
-    else if (e.name.endsWith('.jsonl.zstd')) out.push(p)
-  }
-  return out
-}
+requireSessionsRoot()
 
 const groups = new Map()
-for (const f of walk(ROOT)) {
-  const dir = path.dirname(f)
+for (const { path: file } of listLogs()) {
+  const dir = path.dirname(file)
   if (!groups.has(dir)) groups.set(dir, [])
-  groups.get(dir).push(f)
+  groups.get(dir).push(file)
 }
 
 for (const [dir, files] of groups) {

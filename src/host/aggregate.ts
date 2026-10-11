@@ -64,6 +64,43 @@ function shiftDay(key: string, days: number): string {
   return new Date(Date.UTC(year, month - 1, day) + days * DAY_MS).toISOString().slice(0, 10)
 }
 
+/** Day of week for a key, `0` = Sunday. */
+function weekdayOf(key: string): number {
+  const [year, month, day] = key.split('-').map(Number) as [number, number, number]
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay()
+}
+
+/**
+ * The heatmap window: roughly the last year, trimmed to a whole even number of
+ * weeks.
+ *
+ * Both ends are what the panel needs rather than what the calendar offers, and
+ * the panel draws this window as **two stacked half-year blocks**:
+ *
+ *   - It starts on a **Sunday**, because a contribution column is a week, so a
+ *     window starting mid-week would put a partial week in column 0.
+ *   - It spans an **even** number of weeks. The panel splits the columns in half,
+ *     and an odd count cannot be halved — one block would come out a column
+ *     short and the two rows would end at different x positions, which reads as a
+ *     table missing a column. Trimming up to six days off the start is invisible
+ *     next to a year of history and is the only way both rows can be equal.
+ *
+ * The trim only ever moves the start later, so the window is never longer than
+ * requested and never reaches past `todayKey`.
+ * @param todayKey - Today's key, the last day the window covers.
+ * @returns Inclusive `{ from, to }` day keys.
+ */
+export function heatmapWindow(todayKey: string): { from: string; to: string } {
+  const earliest = firstOfMonth(todayKey, HEATMAP_MONTHS - 1)
+  // Snapping back to Sunday does not itself change the column count — it moves
+  // the start and the week padding by the same amount — so this is the count the
+  // panel would build for this window, exactly.
+  let from = shiftDay(earliest, -weekdayOf(earliest))
+  const spanDays = Math.round((Date.parse(`${todayKey}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY_MS) + 1
+  if (Math.ceil(spanDays / 7) % 2 === 1) from = shiftDay(from, 7)
+  return { from, to: todayKey }
+}
+
 /**
  * Compute the current activity streak, in consecutive local days.
  *
@@ -148,6 +185,7 @@ export function buildSnapshot(input: AggregateInput): UsageSnapshot {
   const effortTally = new Map<string, number>()
   const skillTally = new Map<string, number>()
   const modelTally = new Map<string, number>()
+  const presetTally = new Map<string, number>()
   const activeDays = new Set<string>()
   const totals = zeroBuckets()
   const byWorkspace = new Map<string, { buckets: Buckets; sessions: number }>()
@@ -175,6 +213,10 @@ export function buildSnapshot(input: AggregateInput): UsageSnapshot {
     const workspace = byWorkspace.get(cwd) ?? { buckets: zeroBuckets(), sessions: 0 }
     workspace.sessions++
     byWorkspace.set(cwd, workspace)
+
+    if (summary.agentPreset !== undefined) {
+      presetTally.set(summary.agentPreset, (presetTally.get(summary.agentPreset) ?? 0) + 1)
+    }
 
     for (const day of summary.days) {
       const entry = days.get(day.date) ?? { buckets: zeroBuckets(), turns: 0, responses: 0 }
@@ -220,6 +262,13 @@ export function buildSnapshot(input: AggregateInput): UsageSnapshot {
   const streaks = computeStreaks(activeDays, todayKey)
   const lifetimeTokens = totalOf(totals)
 
+  // "The preset sessions were seeded with" has to be resolved to ONE label, so
+  // the tally is reduced to its most frequent entry; ties break on the label so
+  // the answer is stable across scans.
+  const agentPreset = [...presetTally.entries()].sort(
+    (left, right) => right[1] - left[1] || left[0].localeCompare(right[0]),
+  )[0]?.[0]
+
   // The peak is taken over the AGGREGATED day buckets, not over each session's
   // own days. Two sessions sharing a date are one day to a user, and reading
   // the per-session values would silently under-report the busiest day.
@@ -258,9 +307,10 @@ export function buildSnapshot(input: AggregateInput): UsageSnapshot {
     home,
     timeZone,
     ...(input.identity === undefined ? {} : { identity: input.identity }),
+    ...(agentPreset === undefined ? {} : { agentPreset }),
     totals: { ...counted(totals), sessions: lifetimeSessions, turns, responses },
     days: dayList,
-    heatmap: { from: shiftDay(firstOfMonth(todayKey, HEATMAP_MONTHS - 1), 0), to: todayKey },
+    heatmap: heatmapWindow(todayKey),
     models: modelList,
     workspaces: workspaceList,
     sessions: buildSessionRows(summaries, input.sessionLimit ?? 12, input.currentSession),

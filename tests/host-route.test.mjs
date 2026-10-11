@@ -178,8 +178,23 @@ for (const summary of summaries) {
   assert.equal(dayTotal, summary.totals.totalTokens, `session ${summary.id}: day buckets must sum to the total`)
   const routeTotal = summary.routes.reduce((sum, route) => sum + route.totalTokens, 0)
   assert.equal(routeTotal, summary.totals.totalTokens, `session ${summary.id}: route buckets must sum to the total`)
-  const cellTotal = summary.dayRoutes.reduce((sum, cell) => sum + cell.totalTokens, 0)
-  assert.equal(cellTotal, summary.totals.totalTokens, `session ${summary.id}: (day, route) cells must sum to the total`)
+
+  // One settlement is one `(turn, step)` slot, counted the same way everywhere.
+  // These three used to disagree: the total and the day counted SAMPLES while
+  // the routes counted SLOTS, so a streamed re-report added a response to two
+  // of them and not to the third.
+  const dayResponses = summary.days.reduce((sum, day) => sum + day.responses, 0)
+  const routeResponses = summary.routes.reduce((sum, route) => sum + route.responses, 0)
+  assert.equal(
+    summary.responses,
+    routeResponses,
+    `session ${summary.id}: the session response count must equal the sum of its route counts`,
+  )
+  assert.equal(
+    dayResponses,
+    routeResponses,
+    `session ${summary.id}: the per-day and per-route response counts must agree`,
+  )
 }
 
 // --- 5. the snapshot must be internally consistent --------------------------

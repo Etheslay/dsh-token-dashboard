@@ -29,13 +29,14 @@
   },
   "type": "module",
   "main": "lib/index.js",
-  "types": "lib/types/index.d.ts",
+  "types": "lib/types/host/index.d.ts",
   "exports": {
     ".": {
-      "types": "./lib/types/index.d.ts",
+      "types": "./lib/types/host/index.d.ts",
       "default": "./lib/index.js"
     },
     "./client": {
+      "types": "./lib/types/client/index.d.ts",
       "default": "./lib/client.js"
     },
     "./cordis.patch.yml": "./cordis.patch.yml",
@@ -99,16 +100,19 @@
     "typescript": "^5.7.2"
   },
   "engines": {
-    "node": ">=22.15.0"
+    "node": ">=22.18.0"
   },
   "scripts": {
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node tests/render.test.mjs && node tests/client-bundle.test.mjs && node tests/host-route.test.mjs",
+    "test": "node tests/fold.test.mjs && node tests/render.test.mjs && node tests/client-bundle.test.mjs && node tests/host-route.test.mjs",
+    "test:fold": "node tests/fold.test.mjs",
     "test:render": "node tests/render.test.mjs",
     "test:client": "node tests/client-bundle.test.mjs",
     "test:host": "node tests/host-route.test.mjs",
     "preview": "node scripts/preview.mjs",
+    "check:layout": "node tools/check-panel-layout.mjs",
+    "refresh:profile": "node tools/refresh-profile.mjs",
     "prepack": "node scripts/build.mjs"
   }
 }

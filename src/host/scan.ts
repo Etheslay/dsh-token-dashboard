@@ -28,9 +28,9 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { foldSession, routeToWire, dayToWire, dayRouteToWire, type SessionFold } from './fold.ts'
+import { foldSession, routeToWire, dayToWire, type SessionFold } from './fold.ts'
 import { decodeSessionBuffer, parseLogEvents, type RawLogEvent } from './session-log.ts'
-import type { CountedBuckets, ContextPressure, DayRouteUsage, DayUsage, RouteUsage } from '../shared/types.ts'
+import type { CountedBuckets, ContextPressure, DayUsage, RouteUsage } from '../shared/types.ts'
 
 /** Everything one session log contributes, detached from the fold's maps. */
 export interface SessionSummary {
@@ -48,9 +48,7 @@ export interface SessionSummary {
   updatedAt: number
   /** Turns started in the log. */
   turns: number
-  /** Turns that completed and so have a duration. */
-  completedTurns: number
-  /** Assistant settlements recorded. */
+  /** Assistant settlements recorded; one per `(turn, step)` slot. */
   responses: number
   /** Wall-clock duration of the longest completed turn, in milliseconds. */
   longestTurnMs: number
@@ -60,8 +58,6 @@ export interface SessionSummary {
   routes: RouteUsage[]
   /** Per-day totals, oldest first. */
   days: DayUsage[]
-  /** Per-`(day, route)` totals, used for a range-filtered model breakdown. */
-  dayRoutes: DayRouteUsage[]
   /** Newest context occupancy. */
   context?: ContextPressure
   /** Reasoning effort per request, keyed by label. */
@@ -190,13 +186,11 @@ function toSummary(
     createdAt: num(data['createdAt']),
     updatedAt: fold.updatedAt,
     turns: fold.turns,
-    completedTurns: fold.completedTurns,
     responses: fold.responses,
     longestTurnMs: fold.longestTurnMs,
     totals: fold.totals,
     routes,
     days,
-    dayRoutes: [...fold.dayRoutes.values()].map(dayRouteToWire),
     ...(fold.context === undefined ? {} : { context: fold.context }),
     efforts: Object.fromEntries(fold.efforts),
     skills: Object.fromEntries(fold.skills),

@@ -1,23 +1,14 @@
 // Dump one trimmed example of each relevant event type from the biggest session logs.
-import fs from 'node:fs'
 import path from 'node:path'
-import { decodeSessionFile } from '../src/host/session-log.ts'
+import { decodeSessionFile, parseLogEvents } from '../src/host/session-log.ts'
+import { listLogsBySize, requireSessionsRoot } from './session-store.mjs'
 
-const ROOT = path.join(process.env.DSH_HOME ?? 'C:/Users/wu/.dsh', 'sessions')
+requireSessionsRoot()
 const WANT = [
   'session', 'turn/start', 'turn/end', 'step/start', 'step/end',
   'assistant/message', 'assistant/attempt', 'llm/retry', 'llm/retry-started',
   'request/context', 'request/header', 'user/message', 'system/message', 'session/title',
 ]
-
-function walk(dir, out = []) {
-  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-    const p = path.join(dir, e.name)
-    if (e.isDirectory()) walk(p, out)
-    else if (e.name.endsWith('.jsonl.zstd')) out.push({ p, size: fs.statSync(p).size })
-  }
-  return out
-}
 
 function trim(v, depth = 0) {
   if (depth > 3) return '…'
@@ -32,16 +23,21 @@ function trim(v, depth = 0) {
 }
 
 const seen = new Map()
-const files = walk(ROOT).sort((a, b) => b.size - a.size).slice(0, 6)
-for (const { p } of files) {
-  const { text } = decodeSessionFile(p)
-  for (const line of text.split('\n')) {
-    if (!line) continue
-    let ev; try { ev = JSON.parse(line) } catch { continue }
+const files = listLogsBySize().slice(0, 6)
+for (const { path: file } of files) {
+  const { events } = parseLogEvents(decodeSessionFile(file).text)
+  for (const ev of events) {
     if (!WANT.includes(ev.type) || seen.has(ev.type)) continue
     // prefer samples that actually carry usage / interesting payload
     if (ev.type === 'assistant/attempt' && !ev.data?.stream) continue
-    seen.set(ev.type, { file: path.basename(path.dirname(p)), ev: { type: ev.type, seq: ev.seq, time: ev.time, data: trim(ev.data) } })
+    // The `session` header keeps `id` / `cwd` / `createdAt` / `agentPreset` at
+    // the TOP level of the event, not under `data` — dumping only `data` printed
+    // `{"type":"session"}` and documented nothing.
+    const { type, seq, time, data, ...rest } = ev
+    seen.set(ev.type, {
+      file: path.basename(path.dirname(file)),
+      ev: { type, seq, time, ...(Object.keys(rest).length === 0 ? {} : { header: trim(rest) }), data: trim(data) },
+    })
   }
 }
 

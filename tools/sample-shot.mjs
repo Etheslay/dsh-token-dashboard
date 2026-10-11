@@ -11,8 +11,6 @@ import zlib from 'node:zlib'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const ATTACH = 'C:/Users/wu/.dsh/attachments/v1/objects'
-
 /** Decode a PNG into `{ width, height, channels, data }`. */
 export function decodePng(file) {
   const buf = fs.readFileSync(file)

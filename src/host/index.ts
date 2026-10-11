@@ -25,6 +25,32 @@ import { dayKeyInZone } from './fold.ts'
 import type { StatsQuery, UsageSnapshot } from '../shared/types.ts'
 import { IdentityCache } from './account.ts'
 
+/**
+ * The wire contract the `/api/stats` route answers with, re-exported from the
+ * package root.
+ *
+ * Nothing else publishes these: a consumer that wants to type the snapshot — a
+ * test harness, a second panel, a script reading the route — has no entry point
+ * for them otherwise, because a type-only import is not a re-export.
+ */
+export type {
+  CacheStats,
+  ContextPressure,
+  CountedBuckets,
+  DayUsage,
+  Insights,
+  ProfileIdentity,
+  ProfileSummary,
+  RouteUsage,
+  SessionRow,
+  Share,
+  StatsQuery,
+  TokenBuckets,
+  UsageCount,
+  UsageSnapshot,
+  WorkspaceUsage,
+} from '../shared/types.ts'
+
 /** Cordis plugin name; must match the Loader entry id in `cordis.patch.yml`. */
 export const name = 'dsh-token-dashboard'
 
@@ -82,9 +108,10 @@ function sendJson(response: ServerResponse, status: number, payload: unknown): v
   response.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
     'content-length': String(body.byteLength),
-    // Session logs change constantly and the payload is small; a short private
-    // window lets the panel reopen instantly without ever serving a stale
-    // snapshot to a fresh page load.
+    // Always revalidated, never served from cache: session logs change
+    // constantly and a stale snapshot on a fresh page load is worse than a
+    // re-scan the scanner has already memoized per (size, mtimeMs). The
+    // in-process snapshot cache is what keeps reopening the panel instant.
     'cache-control': 'private, max-age=0, must-revalidate',
   })
   response.end(body)
@@ -138,7 +165,10 @@ export function apply(ctx: HostContext): void {
       warnings,
       elapsedMs: Date.now() - started,
     })
-    cached = { at: now, key, snapshot }
+    // Stamped when the snapshot is READY, not when the request arrived: a scan
+    // slower than the TTL would otherwise publish an entry that is already
+    // stale, so every refresh would rescan the whole store again.
+    cached = { at: Date.now(), key, snapshot }
     return snapshot
   }
 

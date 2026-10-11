@@ -9,11 +9,13 @@
 
 /** Simplified Chinese dictionary. */
 export const zh: Record<string, string> = {
-  nav: '\u7528\u91cf',
+  // The settings nav shows this next to the section's glyph. It names the whole
+  // page rather than just "usage", because the page is a statistics report — the
+  // headline figures, a year of activity, and the breakdowns — not only a number.
+  nav: '\u7528\u91cf\u7edf\u8ba1',
   title: '\u7528\u91cf\u7edf\u8ba1',
   refresh: '\u5237\u65b0',
   refreshing: '\u7edf\u8ba1\u4e2d\u2026',
-  retry: '\u91cd\u8bd5',
   updatedAt: '\u66f4\u65b0\u4e8e {time}',
   scanTook: '\u626b\u63cf {ms} ms',
 
@@ -66,7 +68,6 @@ export const en: Record<string, string> = {
   title: 'Usage',
   refresh: 'Refresh',
   refreshing: 'Measuring…',
-  retry: 'Retry',
   updatedAt: 'updated {time}',
   scanTook: 'scan {ms} ms',
 

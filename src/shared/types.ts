@@ -42,14 +42,13 @@ export interface RouteUsage extends CountedBuckets {
   provider: string
   /** Model id, for example `deepseek-flash`. */
   model: string
-  /** Assistant settlements attributed to this route. */
+  /**
+   * Assistant settlements attributed to this route.
+   *
+   * One per `(turn, step)` slot: a retried step counts twice, a streamed
+   * re-report of the same step replaces its predecessor and counts once.
+   */
   responses: number
-}
-
-/** One `(day, route)` cell, used for a range-filtered model breakdown. */
-export interface DayRouteUsage extends RouteUsage {
-  /** Local date as `YYYY-MM-DD`. */
-  date: string
 }
 
 /** One local calendar day's accumulated usage. */
@@ -58,7 +57,11 @@ export interface DayUsage extends CountedBuckets {
   date: string
   /** Turns that started on this day. */
   turns: number
-  /** Assistant settlements on this day. */
+  /**
+   * Assistant settlements on this day, on the same `(turn, step)` slot basis as
+   * {@link RouteUsage.responses}, so the per-day and per-route tallies sum to
+   * the same figure.
+   */
   responses: number
 }
 

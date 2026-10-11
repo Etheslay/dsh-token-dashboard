@@ -29,7 +29,6 @@ import { PANEL_CSS } from '../src/client/styles.ts'
 import { markUrl } from '../src/client/nav-icon.ts'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const SHELL_BUNDLE = 'D:/DSH Desktop/resources/app.asar.unpacked/../../resources/app.asar'
 
 /** Bundle the TSX panel so Node can import it. */
 async function loadPanel() {
@@ -111,9 +110,7 @@ const panel = renderToStaticMarkup(
     t,
     locale: 'en-GB',
     snapshot,
-    range: '30d',
     loading: false,
-    onRangeChange: () => {},
     onRefresh: () => {},
   }),
 )
@@ -179,7 +176,7 @@ nav button {
   padding: 6px 10px; border-radius: 7px; text-align: left; width: 100%;
 }
 nav button[data-active] { background: var(--dsw-alias-bg-layer-2); font-weight: 500; }
-main { padding: 22px 26px 0; overflow: hidden; display: flex; flex-direction: column; }
+main { padding: 22px 26px 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; }
 .hint {
   color: var(--dsw-alias-label-secondary);
   font-size: 11px;
@@ -197,13 +194,13 @@ ${`[data-dsh-token-dashboard-nav-icon] > svg{display:none}[data-dsh-token-dashbo
     ${navRow('General', false)}
     ${navRow('Models', false)}
     ${navRow('Plugins', false)}
-    ${navRow('Usage', true)}
+    ${navRow(en.nav, true)}
     ${navRow('About', false)}
   </nav>
   <main>
     ${panel}
     <div class="hint">
-      Live preview rendered from ${summaries.length} session logs in ${t('nav') === 'Usage' ? home.replace(/\\/g, '\\\\') : home} · theme tokens taken verbatim from the DSH shell.
+      Live preview rendered from ${summaries.length} session logs in ${home} · theme tokens taken verbatim from the DSH shell.
     </div>
   </main>
 </div>

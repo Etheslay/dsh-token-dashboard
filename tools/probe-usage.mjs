@@ -1,32 +1,24 @@
 // Probe decoded DSH session logs for token-usage events.
-import fs from 'node:fs'
+// Usage: node tools/probe-usage.mjs [maxFiles]
 import path from 'node:path'
-import { decodeSessionFile } from '../src/host/session-log.ts'
+import { decodeSessionFile, parseLogEvents } from '../src/host/session-log.ts'
+import { listLogsBySize, positiveIntArg, requireSessionsRoot } from './session-store.mjs'
 
-const ROOT = process.env.DSH_HOME ? path.join(process.env.DSH_HOME, 'sessions') : 'C:/Users/wu/.dsh/sessions'
+requireSessionsRoot()
+const maxFiles = positiveIntArg(process.argv[2], 4, 'usage: node tools/probe-usage.mjs [maxFiles]')
 
-function walk(dir, out = []) {
-  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-    const p = path.join(dir, e.name)
-    if (e.isDirectory()) walk(p, out)
-    else if (e.name.endsWith('.jsonl.zstd')) out.push({ p, size: fs.statSync(p).size })
-  }
-  return out
-}
-
-const files = walk(ROOT).sort((a, b) => b.size - a.size).slice(0, Number(process.argv[2] ?? 4))
+const files = listLogsBySize().slice(0, maxFiles)
 const globalTypes = new Map()
 let printedUsage = 0
 
-for (const { p, size } of files) {
-  const { text, frames, failed } = decodeSessionFile(p)
-  const lines = text.split('\n').filter(Boolean)
+for (const { path: file, size } of files) {
+  const { text, frames, failed } = decodeSessionFile(file)
+  const { events } = parseLogEvents(text)
   const types = new Map()
   let usageCount = 0
   let firstUsage = null
   let headers = 0
-  for (const line of lines) {
-    let ev; try { ev = JSON.parse(line) } catch { continue }
+  for (const ev of events) {
     types.set(ev.type, (types.get(ev.type) ?? 0) + 1)
     globalTypes.set(ev.type, (globalTypes.get(ev.type) ?? 0) + 1)
     if (ev.type === 'session') headers++
@@ -35,7 +27,7 @@ for (const { p, size } of files) {
       if (u) { usageCount++; if (!firstUsage) firstUsage = { keys: Object.keys(u), u, turn: ev.data.turn, step: ev.data.step, source: ev.data.message?.source } }
     }
   }
-  console.log(`\n===== ${path.basename(path.dirname(p))} (${(size / 1024).toFixed(0)} KiB) frames=${frames} fail=${failed} lines=${lines.length} headers=${headers}`)
+  console.log(`\n===== ${path.basename(path.dirname(file))} (${(size / 1024).toFixed(0)} KiB) frames=${frames} fail=${failed} events=${events.length} headers=${headers}`)
   console.log('  ' + [...types.entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}=${v}`).join(' '))
   if (usageCount) {
     console.log(`  assistant/message WITH usage: ${usageCount}`)

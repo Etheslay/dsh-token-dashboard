@@ -34,6 +34,17 @@ export const HEAT_MODES: readonly HeatMode[] = ['daily', 'weekly', 'cumulative']
 export interface UsageSectionProps {
   /** Translator bound to this plugin's locale namespace. */
   t?: Translate
+  /**
+   * Reads the active DSH locale id, re-read on every render.
+   *
+   * The numbers follow the UI language rather than the browser's, so a user who
+   * switched DSH to Chinese in Settings reads `3.7亿` instead of `370M`. It is a
+   * reader rather than a value because the shell re-renders this entry on every
+   * locale revision while the inject face itself is materialized only once per
+   * registration.
+   * @returns A BCP-47 tag, or `undefined` when no locale seat is installed.
+   */
+  readLocale?: () => string | undefined
 }
 
 /** Substitute `{name}` placeholders. */
@@ -70,7 +81,7 @@ function dayLabel(key: string, locale: string | undefined, options: Intl.DateTim
 }
 
 /** One cell of the heatmap. */
-interface HeatCell {
+export interface HeatCell {
   /** Stable key: the day this cell represents. */
   key: string
   /** The day the cell is anchored on. */
@@ -79,6 +90,24 @@ interface HeatCell {
   value: number
   /** Ramp step, `0`-`4`. */
   level: number
+  /**
+   * Whether this cell only pads a block out to the shared column count.
+   *
+   * A year is 52 or 53 weeks, which is odd, so halving it leaves one block with
+   * a column more than the other. Both blocks draw onto the same grid width, so
+   * that difference would give them visibly different cell sizes. The short
+   * block is padded to match instead, and the padding is hidden.
+   */
+  trailing?: boolean
+  /**
+   * Whether this cell lies after the window's last day.
+   *
+   * The grid is padded forward to the end of the current week so every column
+   * holds seven days. Those positions are days that have not happened: they
+   * keep their place and their empty colour, but they claim nothing — no date
+   * in the accessibility tree, no tooltip, no hover readout.
+   */
+  future?: boolean
 }
 
 /** Quartile thresholds over the non-zero values, so the ramp spreads usefully. */
@@ -110,12 +139,33 @@ export interface HeatBlock {
 export interface HeatGrid {
   /** The stacked blocks, earliest first. */
   blocks: HeatBlock[]
-  /** Total columns across every block. */
+  /**
+   * Columns in one block — the count EVERY block draws, padding included.
+   *
+   * Both the CSS grid (`repeat(N, 1fr)`) and the width formula that decides how
+   * large a cell may grow are built from this one number, so the cells and the
+   * month axis can never disagree about where column `i` starts.
+   */
+  columnsPerBlock: number
+  /** Columns across one block before padding: half the year, rounded up. */
+  realColumnsPerBlock: number
+  /** Total columns in the year, as built (52 or 53 for a year, before trimming). */
   columnCount: number
+  /** Whether any day INSIDE the window recorded tokens. */
+  hasActivity: boolean
 }
 
 /** How many stacked blocks a year is split into. Two blocks of six months. */
 export const HEAT_BLOCKS = 2
+
+/**
+ * Id shared by the `Token activity` heading and the grids it labels.
+ *
+ * A grid needs an accessible name, and the heading sitting immediately above it
+ * already is that name — so the two are tied together rather than duplicating
+ * the string into an `aria-label`.
+ */
+export const HEAT_TITLE_ID = 'tdd-heat-title'
 
 /**
  * Label the column that contains a month's first day.
@@ -126,6 +176,11 @@ export const HEAT_BLOCKS = 2
  * named exactly once, and a block that starts mid-month simply stays unlabelled
  * until the next month begins rather than repeating the month its predecessor
  * already named.
+ *
+ * The window's own first day counts as a start. It is a Sunday, and the month it
+ * falls in may not have its 1st inside the window at all — a window beginning on
+ * 2 November would otherwise leave November unnamed and open the axis with
+ * December, which reads as a missing column.
  * @param cells - The block's cells, column-major.
  * @param windowFrom - First day the window covers.
  * @param windowTo - Last day the window covers.
@@ -140,12 +195,16 @@ function monthLabels(
 ): Array<{ key: string; label: string }> {
   const months: Array<{ key: string; label: string }> = []
   for (let index = 0; index < cells.length; index += 7) {
-    const column = cells.slice(index, index + 7)
-    const startsMonth = column.find(
-      (cell) => cell.date.endsWith('-01') && cell.date >= windowFrom && cell.date <= windowTo,
-    )
+    const column = cells.slice(index, index + 7).filter((cell) => cell.date >= windowFrom && cell.date <= windowTo)
+    // A real first-of-month wins the slot, and the window's own opening day is
+    // only the anchor when the column holds no month start at all. The two can
+    // collide: a window opening on, say, 29 January has a first column that
+    // also contains 1 February, and there is one label slot for both. Letting
+    // the opening day win names the three-day stub the window was trimmed to
+    // and leaves the whole of February unnamed — a month missing from the axis.
+    const startsMonth = column.find((cell) => cell.date.endsWith('-01')) ?? column.find((cell) => cell.date === windowFrom)
     months.push({
-      key: column[0]!.date,
+      key: cells[index]!.date,
       label: startsMonth === undefined ? '' : dayLabel(startsMonth.date, locale, { month: 'short' }),
     })
   }
@@ -166,11 +225,12 @@ function monthLabels(
  * weeks, which does not divide in half evenly; splitting on a month boundary
  * would put 27 columns in one block and 26 in the other, and because the
  * columns are fluid that would give the two blocks visibly different cell
- * sizes. Halving the week count keeps them within one column of each other.
+ * sizes. Halving the week count keeps them even, and the one column a year of
+ * odd length leaves over is padded away so both blocks draw the same size cell.
  * @param snapshot - The snapshot carrying the day buckets and window.
  * @param mode - How each cell aggregates.
  * @param locale - Locale for the month names.
- * @returns The stacked blocks plus the total column count.
+ * @returns The stacked blocks, the per-block column count and the year's total.
  */
 export function buildHeatmap(snapshot: UsageSnapshot, mode: HeatMode, locale?: string): HeatGrid {
   const byDate = new Map<string, DayUsage>()
@@ -187,18 +247,40 @@ export function buildHeatmap(snapshot: UsageSnapshot, mode: HeatMode, locale?: s
       weekly.set(week, (weekly.get(week) ?? 0) + day.totalTokens)
     }
   }
+  /** The Sunday a day belongs to — the key {@link weekly} is stored under. */
+  const weekOf = (date: string): string => shiftDay(date, -weekdayOf(date))
 
-  const days: Array<{ date: string; value: number }> = []
   let running = 0
+  let hasActivity = false
+
+  /**
+   * The value one grid position carries under the active mode.
+   * @param date - The position's day.
+   * @param future - Whether the position is past the window's last day.
+   * @returns The value to draw.
+   */
+  const valueFor = (date: string, future: boolean): number => {
+    // Every day of a week carries the WEEK's total, because a column IS a week.
+    // Looking the total up by the cell's own date found it for one cell in seven
+    // — the Sunday — and printed zero for the other six.
+    if (mode === 'weekly') return weekly.get(weekOf(date)) ?? 0
+    if (mode === 'cumulative') return running
+    return future ? 0 : (byDate.get(date)?.totalTokens ?? 0)
+  }
+
+  const days: Array<{ date: string; value: number; future: boolean }> = []
   while (cursor <= windowTo) {
     const tokens = byDate.get(cursor)?.totalTokens ?? 0
+    if (tokens > 0) hasActivity = true
     running += tokens
-    const value = mode === 'weekly' ? (weekly.get(cursor) ?? 0) : mode === 'cumulative' ? running : tokens
-    days.push({ date: cursor, value })
+    days.push({ date: cursor, value: valueFor(cursor, false), future: false })
     cursor = shiftDay(cursor, 1)
   }
   while (days.length % 7 !== 0) {
-    days.push({ date: cursor, value: mode === 'cumulative' ? running : 0 })
+    // The rest of the current week. Keeping them preserves the grid's shape and
+    // cumulative's monotonic tail; marking them `future` stops them from
+    // announcing a date that has not arrived.
+    days.push({ date: cursor, value: valueFor(cursor, true), future: true })
     cursor = shiftDay(cursor, 1)
   }
 
@@ -208,6 +290,7 @@ export function buildHeatmap(snapshot: UsageSnapshot, mode: HeatMode, locale?: s
     date: day.date,
     value: day.value,
     level: levelOf(day.value, thresholds),
+    ...(day.future ? { future: true } : {}),
   }))
 
   const columnCount = cells.length / 7
@@ -217,10 +300,66 @@ export function buildHeatmap(snapshot: UsageSnapshot, mode: HeatMode, locale?: s
     const slice = cells.slice(column * 7, Math.min(columnCount, column + perBlock) * 7)
     blocks.push({ cells: slice, months: monthLabels(slice, windowFrom, windowTo, locale) })
   }
-  return { blocks, columnCount }
+
+  // Pad the short block up to the column count every block draws onto. The
+  // filler repeats the block's last column so the padding cannot claim a date
+  // that belongs to the window or to the other block — it is `trailing`, so
+  // nothing is ever rendered for it.
+  const columnsPerBlock = Math.max(...blocks.map((block) => block.cells.length / 7))
+  for (const block of blocks) {
+    const missing = columnsPerBlock - block.cells.length / 7
+    if (missing <= 0) continue
+    const last = block.cells[block.cells.length - 1]!
+    // `trailing` is the only marker a padded cell needs: it is a copy, not a day
+    // past the window, so it must not also carry the `future` flag.
+    const filler = { ...last, trailing: true, future: undefined }
+    for (let column = 0; column < missing; column++) {
+      for (let row = 0; row < 7; row++) {
+        block.cells.push({ ...filler, key: `${last.date}#pad${column}-${row}` })
+      }
+      block.months.push({ key: `${last.date}#pad${column}`, label: '' })
+    }
+  }
+  return { blocks, columnsPerBlock, realColumnsPerBlock: perBlock, columnCount, hasActivity }
 }
 
-/** Props for {@link UsageView}, the pure presentation component. */
+/**
+ * What a heatmap cell is ABOUT, as a date.
+ *
+ * In weekly mode a cell carries its whole column's total, so it stands for the
+ * week and is named by the week's first day rather than by itself. Exported
+ * because the panel's mode is internal state: a static render is always daily,
+ * so the weekly wording can only be asserted directly.
+ * @param cell - The cell.
+ * @param mode - Active aggregation mode.
+ * @param t - Translator.
+ * @param locale - Locale for the date.
+ * @returns The anchor label, for example `7 May 2026` or `week of 3 May 2026`.
+ */
+export function heatCellAnchor(cell: HeatCell, mode: HeatMode, t: Translate, locale?: string): string {
+  const date = mode === 'weekly' ? shiftDay(cell.date, -weekdayOf(cell.date)) : cell.date
+  const label = dayLabel(date, locale, { year: 'numeric', month: 'short', day: 'numeric' })
+  return mode === 'weekly' ? interpolate(t('weekOf'), { date: label }) : label
+}
+
+/**
+ * The `date · value` readout shared by a cell's tooltip and the hover line.
+ * @param cell - The cell.
+ * @param mode - Active aggregation mode.
+ * @param t - Translator.
+ * @param locale - Locale for the date and the count.
+ * @returns The readout text, for example `7 May 2026 · 1,234 tokens`.
+ */
+export function heatCellDescription(cell: HeatCell, mode: HeatMode, t: Translate, locale?: string): string {
+  return interpolate(t('cellTooltip'), {
+    date: heatCellAnchor(cell, mode, t, locale),
+    value: localeCount(cell.value, locale),
+  })
+}
+
+/**
+ * Props for {@link UsageView}, the pure presentation component.
+ */
 export interface UsageViewProps {
   /** Translator bound to this plugin's locale namespace. */
   t: Translate
@@ -399,6 +538,8 @@ function Activity({
 }): ReactNode {
   const grid = useMemo(() => buildHeatmap(snapshot, mode, locale), [snapshot, mode, locale])
   const active = grid.blocks.flatMap((block) => block.cells).find((cell) => cell.key === hovered)
+  const anchor = (cell: HeatCell): string => heatCellAnchor(cell, mode, t, locale)
+  const describe = (cell: HeatCell): string => heatCellDescription(cell, mode, t, locale)
 
   return createElement(
     'section',
@@ -406,7 +547,11 @@ function Activity({
     createElement(
       'div',
       { className: 'tdd-section-head' },
-      createElement('div', { className: 'tdd-section-title' }, t('activity')),
+      createElement(
+        'div',
+        { className: 'tdd-section-title', id: HEAT_TITLE_ID },
+        t('activity'),
+      ),
       createElement(
         'div',
         { className: 'tdd-tabs', role: 'group' },
@@ -432,33 +577,60 @@ function Activity({
       { className: 'tdd-heat' },
       // Two stacked six-month blocks. Splitting the year in half is what lets
       // every column stay wide enough to read without the row overflowing.
+      //
+      // `--tdd-heat-columns` is the one number the geometry needs: every block
+      // pads to the same column count, and both the CSS grid and the width
+      // formula that decides how large a cell may grow are derived from it, so
+      // the cells and the month axis can never disagree about column `i`.
       createElement(
         'div',
-        { className: 'tdd-heat-blocks' },
+        { className: 'tdd-heat-blocks', style: { '--tdd-heat-columns': String(grid.columnsPerBlock) } },
         ...grid.blocks.map((block, blockIndex) =>
           createElement(
             'div',
             { className: 'tdd-heat-block', key: block.cells[0]?.date ?? blockIndex },
+            // A contribution grid IS a table — 7 weekday rows by N week
+            // columns — so it says so: `role="grid"` with real row and column
+            // indexes, and each cell announces what it drew. The month axis
+            // below stays decorative, because its labels are already the column
+            // headers here and reading them twice is worse than not at all.
             createElement(
               'div',
-              { className: 'tdd-heat-grid', role: 'img', 'aria-label': t('activity') },
-              ...block.cells.map((cell) =>
-                createElement('div', {
+              {
+                className: 'tdd-heat-grid',
+                role: 'grid',
+                'aria-labelledby': HEAT_TITLE_ID,
+                'aria-rowcount': 7,
+                'aria-colcount': block.months.length,
+              },
+              ...block.cells.map((cell, index) => {
+                // Block padding repeats a real day and the week's tail is a day
+                // that has not arrived; neither may claim a date, so both stay
+                // out of the accessibility tree and off the hover readout.
+                const inert = cell.trailing === true || cell.future === true
+                return createElement('div', {
                   key: cell.key,
                   className: 'tdd-cell',
+                  role: 'gridcell',
                   'data-level': cell.level,
-                  title: interpolate(t('cellTooltip'), {
-                    date: dayLabel(cell.date, locale, { year: 'numeric', month: 'short', day: 'numeric' }),
-                    value: localeCount(cell.value, locale),
-                  }),
-                  onMouseEnter: () => {
-                    setHovered(cell.key)
-                  },
-                  onMouseLeave: () => {
-                    setHovered(undefined)
-                  },
-                }),
-              ),
+                  'data-trailing': cell.trailing === true ? 'true' : undefined,
+                  'data-future': cell.future === true ? 'true' : undefined,
+                  'aria-rowindex': (index % 7) + 1,
+                  'aria-colindex': Math.floor(index / 7) + 1,
+                  'aria-label': inert ? undefined : `${anchor(cell)}: ${localeCount(cell.value, locale)}`,
+                  title: inert ? undefined : describe(cell),
+                  onMouseEnter: inert
+                    ? undefined
+                    : () => {
+                        setHovered(cell.key)
+                      },
+                  onMouseLeave: inert
+                    ? undefined
+                    : () => {
+                        setHovered(undefined)
+                      },
+                })
+              }),
             ),
             createElement(
               'div',
@@ -476,9 +648,7 @@ function Activity({
         createElement(
           'span',
           null,
-          active === undefined
-            ? ''
-            : `${dayLabel(active.date, locale, { year: 'numeric', month: 'short', day: 'numeric' })} \u00b7 ${localeCount(active.value, locale)} tokens`,
+          active !== undefined ? describe(active) : grid.hasActivity ? '' : t('noActivity'),
         ),
         createElement(
           'span',
@@ -603,7 +773,11 @@ export function UsageSection(props: UsageSectionOptions): ReactNode {
   const [staleHost, setStaleHost] = useState(false)
   const [loading, setLoading] = useState(true)
   const [reloadToken, setReloadToken] = useState(0)
-  const locale = typeof navigator === 'undefined' ? undefined : navigator.language
+  // Numbers and durations follow the UI language, not the browser's. The shell
+  // re-renders this entry on every locale revision, so reading it here keeps a
+  // switch live; `navigator.language` only covers a render with no locale seat
+  // (a bare `UsageView` in a test).
+  const locale = props.readLocale?.() ?? (typeof navigator === 'undefined' ? undefined : navigator.language)
 
   const sessionId = useMemo(() => currentSessionId(), [])
   const timeZone = useMemo(() => browserTimeZone(), [])

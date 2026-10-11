@@ -39,6 +39,16 @@ export interface AccountContext {
 /** How long a resolved identity is reused before the account is asked again. */
 const IDENTITY_TTL_MS = 5 * 60_000
 
+/**
+ * How long a FAILED lookup is reused.
+ *
+ * Shorter than {@link IDENTITY_TTL_MS} on purpose: a failure is usually "signed
+ * out" or "the platform is unreachable", and a user who then signs in should
+ * see the identity block appear on their next refresh rather than minutes
+ * later.
+ */
+const IDENTITY_FAILURE_TTL_MS = 30_000
+
 /** Build the client metadata the platform expects. */
 function clientMetadata(): AccountClientMetadata {
   let locale = 'en-US'
@@ -101,19 +111,28 @@ export class IdentityCache {
 
   /**
    * @param ttlMs - How long a successful lookup is reused.
+   * @param failureTtlMs - How long an empty result is reused.
    */
-  constructor(private readonly ttlMs: number = IDENTITY_TTL_MS) {}
+  constructor(
+    private readonly ttlMs: number = IDENTITY_TTL_MS,
+    private readonly failureTtlMs: number = IDENTITY_FAILURE_TTL_MS,
+  ) {}
 
   /**
    * Read the cached identity, refreshing it when stale.
+   *
+   * A successful lookup is held for `ttlMs`; a lookup that found nothing is
+   * held for `failureTtlMs` instead, so signing in is picked up without a
+   * restart.
    * @param ctx - The host context.
    * @returns The identity, or `undefined` when there is nothing to show.
    */
   async read(ctx: AccountContext): Promise<ProfileIdentity | undefined> {
     const now = Date.now()
-    if (this.resolved && now - this.at < this.ttlMs) return this.value
+    const ttl = this.value === undefined ? this.failureTtlMs : this.ttlMs
+    if (this.resolved && now - this.at < ttl) return this.value
     this.value = await resolveIdentity(ctx)
-    this.at = now
+    this.at = Date.now()
     this.resolved = true
     return this.value
   }

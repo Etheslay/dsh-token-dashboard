@@ -14,6 +14,17 @@ import { installSettingsNavIcon } from './nav-icon.ts'
 import { PANEL_CSS, STYLE_ID } from './styles.ts'
 import { en, zh } from './locales.ts'
 
+/**
+ * Re-exported so the panel can be rendered from a snapshot without a Host.
+ *
+ * `UsageSection` fetches its own data, which is right for the settings page and
+ * useless for anything that wants to check the layout against a fixed snapshot —
+ * `tools/verify-built-panel.mjs` renders this one against the stylesheet the
+ * built bundle actually installs.
+ */
+export { UsageView, buildHeatmap, heatCellAnchor, heatCellDescription } from './panel.tsx'
+export type { UsageViewProps, HeatGrid, HeatBlock, HeatCell, HeatMode, Translate } from './panel.tsx'
+
 /** Locale namespace, deliberately equal to the package name. */
 export const NS = 'dsh-token-dashboard'
 
@@ -87,11 +98,17 @@ export function apply(ctx: UsageClientContext): void {
         order: SECTION_ORDER,
         label: () => t('nav'),
         locale: NS,
-        inject: () => ({ t }),
+        // `readLocale` is a function, not a value: an inject face is materialized
+        // once per registration, so a captured locale id would go stale on the
+        // first switch. The panel calls it at render time, and the shell
+        // re-renders the entry on every locale revision.
+        inject: () => ({ t, readLocale: () => ctx.locale.getLocale?.().active }),
       },
       (props: Record<string, unknown>) =>
         createElement(UsageSection, {
           t: typeof props['t'] === 'function' ? (props['t'] as never) : makeTranslate({}, en),
+          readLocale:
+            typeof props['readLocale'] === 'function' ? (props['readLocale'] as () => string | undefined) : undefined,
         }),
     ),
   )

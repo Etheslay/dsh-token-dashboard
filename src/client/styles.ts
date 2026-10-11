@@ -21,29 +21,77 @@ export const STYLE_ID = 'dsh-token-dashboard/panel'
 /**
  * The activity heatmap's five steps.
  *
- * Index 0 is "no activity"; 1-4 are the ramp. These are GitHub's contribution
- * colours, read out of a swatch of the real thing with `tools/sample-shot.mjs`
- * (`#033a16` `#196c2e` `#2ea043` `#56d364` on `#151b23`). The light row is
- * GitHub's light palette for the same graph.
+ * Index 0 is "no activity"; 1-4 are the ramp. The purple comes from the
+ * reference panel — see the `Less ▢▢▢▢▢ More` swatch and the filled cells in
+ * `research/codex-usage-panel.md`; `tools/sample-shot.mjs` measures a PNG's
+ * colours so a swatch can be checked rather than eyeballed.
+ *
+ * **Darker means more, in both themes.** Level 1 is the faintest step and level
+ * 4 is the deepest, fullest purple, so a heavy day is the one that stands out.
+ * On the light theme that is simply a ramp getting darker; on the dark theme it
+ * runs from a pale lavender down to a saturated deep purple. This is a
+ * deliberate departure from the reference, which brightened the dark theme
+ * instead — brighter-for-more reads backwards next to every other quota meter.
+ *
+ * The empty step is also deliberate: the reference sits it on `#181818`, which
+ * is nearly invisible on DSH's own dark surface, so step 0 uses the theme's
+ * nested-surface colour and stays quiet in either theme.
  */
 export const HEATMAP_RAMP = {
-  light: ['#eff2f5', '#aceebb', '#4ac26b', '#2da44e', '#116329'],
-  dark: ['#151b23', '#033a16', '#196c2e', '#2ea043', '#56d364'],
+  // Pale → deep. Step 4 is the darkest, so the heaviest day is the heaviest cell.
+  light: ['#ebebed', '#ddd0fb', '#b98ef7', '#8b46f0', '#5f21c9'],
+  dark: ['#232326', '#ddd0fb', '#b98ef7', '#8b46f0', '#5f21c9'],
 } as const
+
+/**
+ * Gap between two heatmap columns, in pixels.
+ *
+ * Declared once because the cells, the month axis and the grid's own width
+ * formula all have to agree on it: the formula converts a maximum cell size
+ * into a maximum grid width, and a mismatch of one gap per column would put the
+ * axis back out of step with the cells it labels.
+ */
+export const HEATMAP_GAP = 4
+
+/**
+ * The largest a heatmap cell is allowed to grow, in pixels.
+ *
+ * Without a ceiling a 1600px window stretches a cell to 44px and the graph
+ * stops reading as a contribution grid. The grid fills the panel up to this
+ * cell size and then stops, so the panel width — not a hard-coded grid width —
+ * is what decides the layout. It is wide enough that a 1200px settings dialog
+ * never reaches it; it only bites on a window wider than roughly 1500px.
+ */
+export const HEATMAP_MAX_CELL = 38
 
 /** The panel stylesheet. */
 export const PANEL_CSS = [
   '.tdd{',
   `--tdd-ramp-0:${HEATMAP_RAMP.light[0]};--tdd-ramp-1:${HEATMAP_RAMP.light[1]};`,
   `--tdd-ramp-2:${HEATMAP_RAMP.light[2]};--tdd-ramp-3:${HEATMAP_RAMP.light[3]};--tdd-ramp-4:${HEATMAP_RAMP.light[4]};`,
-  'display:flex;flex-direction:column;gap:26px;min-width:0;height:100%;overflow-y:auto;',
+  // `--tdd-heat-columns` is overwritten per render from the grid the panel
+  // actually built; the value here is only a fallback for a grid rendered
+  // without that style attribute.
+  `--tdd-heat-gap:${HEATMAP_GAP}px;--tdd-heat-cell:${HEATMAP_MAX_CELL}px;--tdd-heat-columns:27;`,
+  // The panel is NOT a scroll container. The settings dialog already scrolls its
+  // body, so a `height:100%` plus `overflow-y:auto` here produced a SECOND
+  // scrollbar inside the dialog's own — measured at a 1000px window: this
+  // element scrolled 1123px of content inside an 864px box while the dialog
+  // scrolled the same page. It now grows to its natural height and leaves
+  // scrolling to its host.
+  'display:flex;flex-direction:column;gap:26px;min-width:0;',
+  // Deliberately NO `overflow` here at all, in either axis. CSS coerces a
+  // computed `overflow-y:visible` to `auto` as soon as the other axis is not
+  // `visible`, so an `overflow-x:hidden` added later as a clipping guard would
+  // silently bring the second scrollbar straight back. Measured: with
+  // `overflow-x:hidden` this rule computed to `overflow-y:auto` and scrolled
+  // 1087px of content inside an 830px box.
   'padding:4px 2px 32px;color:var(--dsw-alias-label-primary);font-size:13px;line-height:1.5}',
-  // `.tdd` is a scroll container, so its children are flex items that would
-  // otherwise SHRINK once the content grew taller than the viewport — and
-  // because several of them clip their overflow, shrinking squashes them to
-  // nothing instead of producing a scrollbar. Two stacked heatmap blocks made
-  // the panel tall enough to hit this on a short window: the five-number bar
-  // collapsed to its 2px of borders and every figure vanished.
+  // A non-scrolling flex column still shrinks its children once the content is
+  // taller than the viewport, and several sections clip their overflow — so
+  // they would be squashed instead of pushing the dialog's scrollbar. Measured
+  // before this rule: the five-number bar collapsed to its 2px of borders and
+  // every figure vanished.
   '.tdd>*{flex:0 0 auto}',
   'body[data-ds-dark-theme] .tdd{',
   `--tdd-ramp-0:${HEATMAP_RAMP.dark[0]};--tdd-ramp-1:${HEATMAP_RAMP.dark[1]};`,
@@ -92,24 +140,47 @@ export const PANEL_CSS = [
   // block ~26 columns, so the cells stay legible and a whole year fits without
   // scrolling at any panel width.
   //
-  // The cells and the month axis are separate grids, so every one of them MUST
-  // declare identical column geometry or the labels drift out from under their
-  // columns. They share one rule below for exactly that reason.
+  // GEOMETRY IS DERIVED, NOT HARD-CODED. Three elements have to agree on it: the
+  // cell grid, the month axis, and the axis's idea of where column `i` starts.
+  // They therefore share one rule — same track count, same gap — and one width
+  // formula. The formula reads the column count off `--tdd-heat-columns`, which
+  // the panel sets from the grid it actually built, so a 52-week year and a
+  // 53-week year both size correctly and nothing has to be kept in sync by hand.
+  //
+  // `min(100%, …)` is what makes this responsive: on a panel narrower than the
+  // formula asks for, the grids take the full panel width and the fluid tracks
+  // shrink with it; on a wider one they stop at `--tdd-heat-cell` so the cells
+  // never balloon. No `max-width`, because a second ceiling is exactly how the
+  // grid and the rest of the panel drifted apart in the first place — the grid
+  // stopped at 660px while the five-number bar and the footer kept going to the
+  // panel's edge.
   '.tdd-heat{display:flex;flex-direction:column;gap:8px;min-width:0}',
   '.tdd-heat-blocks{display:flex;flex-direction:column;gap:16px;min-width:0}',
   '.tdd-heat-block{display:flex;flex-direction:column;gap:6px;min-width:0}',
-  '.tdd-heat-grid,.tdd-heat-months{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);',
-  'gap:4px;width:100%;max-width:660px}',
-  '.tdd-heat-grid{grid-template-rows:repeat(7,minmax(0,1fr))}',
+  '.tdd-heat-grid,.tdd-heat-months{',
+  'display:grid;grid-template-columns:repeat(var(--tdd-heat-columns),minmax(0,1fr));',
+  'gap:var(--tdd-heat-gap);',
+  'width:min(100%,calc(var(--tdd-heat-columns)*(var(--tdd-heat-cell) + var(--tdd-heat-gap)) - var(--tdd-heat-gap)))}',
+  // Cells arrive column-major (a week's seven days in a row), so the grid has to
+  // fill down its seven rows first and only then move to the next column. The
+  // month axis below has one row and needs no flow, which is why it is not in
+  // this rule.
+  '.tdd-heat-grid{grid-template-rows:repeat(7,minmax(0,1fr));grid-auto-flow:column}',
   '.tdd-cell{width:100%;aspect-ratio:1;border-radius:3px;background:var(--tdd-ramp-0)}',
   ".tdd-cell[data-level='1']{background:var(--tdd-ramp-1)}",
   ".tdd-cell[data-level='2']{background:var(--tdd-ramp-2)}",
   ".tdd-cell[data-level='3']{background:var(--tdd-ramp-3)}",
   ".tdd-cell[data-level='4']{background:var(--tdd-ramp-4)}",
+  // A padded cell is only there to keep the two blocks on one column count; it
+  // must hold its track without drawing anything.
+  ".tdd-cell[data-trailing='true']{visibility:hidden}",
   '.tdd-heat-months{color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1}',
   // A month name is wider than its column, so it spills right across the empty
-  // columns that follow — which is exactly where it should sit.
-  '.tdd-heat-month{white-space:nowrap;overflow:visible}',
+  // columns that follow — which is exactly where it should sit. `justify-self`
+  // pins it to the LEFT edge of its own track: left to itself the span would be
+  // sized to its text and centred in the track, so a label wider than its column
+  // would start early and read as belonging to the previous month.
+  '.tdd-heat-month{justify-self:start;white-space:nowrap;overflow:visible}',
   '.tdd-heat-foot{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;',
   'color:var(--dsw-alias-label-secondary);font-size:11px;min-height:18px}',
   '.tdd-heat-legend{display:inline-flex;align-items:center;gap:5px}',

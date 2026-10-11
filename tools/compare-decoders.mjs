@@ -7,17 +7,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import zlib from 'node:zlib'
 import { splitZstdFrames } from '../src/host/session-log.ts'
+import { listLogsBySize, requireSessionsRoot } from './session-store.mjs'
 
-const ROOT = path.join(process.env.DSH_HOME ?? 'C:/Users/wu/.dsh', 'sessions')
-
-function walk(dir, out = []) {
-  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-    const p = path.join(dir, e.name)
-    if (e.isDirectory()) walk(p, out)
-    else if (e.name.endsWith('.jsonl.zstd')) out.push(p)
-  }
-  return out
-}
+requireSessionsRoot()
 
 async function streamDecode(buffer) {
   return new Promise((resolve) => {
@@ -30,7 +22,7 @@ async function streamDecode(buffer) {
   })
 }
 
-const files = walk(ROOT).sort((a, b) => fs.statSync(b).size - fs.statSync(a).size).slice(0, 6)
+const files = listLogsBySize().slice(0, 6).map((entry) => entry.path)
 console.log('streaming zstd available:', typeof zlib.createZstdDecompress === 'function')
 
 for (const file of files) {

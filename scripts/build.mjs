@@ -15,7 +15,7 @@
  * @module dsh-token-dashboard/scripts/build
  */
 import { build } from 'esbuild'
-import { rm, mkdir, readFile, writeFile, cp } from 'node:fs/promises'
+import { rm, mkdir, readFile, writeFile, readdir } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -96,31 +96,63 @@ await build({
 const { execFile } = await import('node:child_process')
 const { promisify } = await import('node:util')
 const tscEntry = path.join(root, 'node_modules/typescript/bin/tsc')
-if (existsSync(tscEntry)) {
-  try {
-    await promisify(execFile)(process.execPath, [tscEntry, '-p', 'tsconfig.build.json'], { cwd: root })
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    console.warn(`[build] declaration emit skipped: ${message.split('\n').slice(0, 4).join(' ')}`)
+if (!existsSync(tscEntry)) {
+  throw new Error('[build] typescript is not installed; the declarations package.json points `types` at cannot be produced')
+}
+try {
+  await promisify(execFile)(process.execPath, [tscEntry, '-p', 'tsconfig.build.json'], { cwd: root })
+} catch (error) {
+  // Fatal on purpose. `npm pack` runs this script through `prepack`, so
+  // downgrading a type error to a warning publishes declarations that do not
+  // match the code — or, once the stub below was removed, none at all.
+  throw new Error(`[build] declaration emit failed: ${error instanceof Error ? error.message : String(error)}`)
+}
+
+const typesRoot = path.join(lib, 'types')
+
+/**
+ * Re-point relative specifiers in the emitted declarations at `.js`.
+ *
+ * `emitDeclarationOnly` does not rewrite `./x.ts` the way a JavaScript emit
+ * does, and the `.ts` sources are not published — so an emitted
+ * `from '../shared/types.ts'` is unresolvable for a consumer. `.js` is the
+ * specifier TypeScript maps back onto the sibling `.d.ts`.
+ * @param dir - Directory to walk.
+ * @returns How many declaration files were rewritten.
+ */
+async function rewriteDeclarationSpecifiers(dir) {
+  let changed = 0
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name)
+    if (entry.isDirectory()) {
+      changed += await rewriteDeclarationSpecifiers(full)
+      continue
+    }
+    if (!entry.name.endsWith('.d.ts')) continue
+    const before = await readFile(full, 'utf8')
+    const after = before.replace(/((?:from|import)\s*\(?\s*['"])(\.{1,2}\/[^'"]*?)\.tsx?(['"])/g, '$1$2.js$3')
+    if (after === before) continue
+    await writeFile(full, after)
+    changed++
   }
-} else {
-  console.warn('[build] typescript is not installed; skipping declaration emit')
+  return changed
 }
+const rewritten = await rewriteDeclarationSpecifiers(typesRoot)
 
-// A package's `types` entry has to exist for editors to resolve the plugin.
-const typeEntry = path.join(lib, 'types/index.d.ts')
+// The entry `package.json` points `types` / `exports["."].types` at is emitted
+// from `src/host/index.ts` — the same module `lib/index.js` bundles. A missing
+// file here means the field is a lie, which is exactly what the hand-written
+// two-line stub used to paper over.
+const typeEntry = path.join(typesRoot, 'host/index.d.ts')
 if (!existsSync(typeEntry)) {
-  await mkdir(path.dirname(typeEntry), { recursive: true })
-  await writeFile(typeEntry, 'export declare const name: string\nexport declare function apply(ctx: unknown): void\n')
-}
-
-// Locale JSON files are not part of the bundle, but shipping them keeps the
-// `./locale/*.json` export honest for hosts that read dictionaries from disk.
-if (existsSync(path.join(root, 'locale'))) {
-  await cp(path.join(root, 'locale'), path.join(lib, 'locale'), { recursive: true })
+  throw new Error(
+    `[build] ${path.relative(root, typeEntry).replace(/\\/g, '/')} was not emitted, and package.json points \`types\` at it`,
+  )
 }
 
 const hostSize = (await import('node:fs')).statSync(path.join(lib, 'index.js')).size
 const clientSize = (await import('node:fs')).statSync(path.join(lib, 'client.js')).size
 console.log(`[build] lib/index.js  ${(hostSize / 1024).toFixed(1)} KiB`)
 console.log(`[build] lib/client.js ${(clientSize / 1024).toFixed(1)} KiB`)
+console.log(`[build] lib/types     ${rewritten} declaration file(s) re-pointed at .js`)
+console.log(`[build] types entry   ${path.relative(root, typeEntry).replace(/\\/g, '/')}`)

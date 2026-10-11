@@ -239,6 +239,10 @@ export function localeDuration(seconds: number, locale?: string): string {
  * The reference panel renders Chinese counts as 万 / 亿 rather than K / M, one
  * decimal either way: `370_000_000` reads `3.7亿` and `53_171_000` reads
  * `5317.1万`. English keeps Codex's own `compactAmount` rule.
+ *
+ * Rounding must not print a unit it has outgrown: `99_999_999 / 10_000` rounds
+ * to `10000`, and `10000万` is a worse label than the `1亿` the same value has.
+ * The 万 arm therefore re-checks its own rounded magnitude and promotes.
  * @param value - The count.
  * @param locale - BCP-47 tag of the active UI language.
  * @returns The localized compact label.
@@ -248,10 +252,12 @@ export function localeCompact(value: number, locale?: string): string {
   if (!Number.isFinite(value)) return MISSING
   const safe = Math.max(0, Math.trunc(value))
   if (safe < 10_000) return String(safe)
-  const divisor = safe >= 100_000_000 ? 100_000_000 : 10_000
-  const suffix = safe >= 100_000_000 ? '\u4ebf' : '\u4e07'
-  // Trailing-zero strip, so 3.0亿 reads 3亿 rather than 3.0亿.
-  return `${stripTrailingZeros(fixedHalfEven(safe / divisor, 1))}${suffix}`
+  const oneDecimal = (divisor: number): string => stripTrailingZeros(fixedHalfEven(safe / divisor, 1))
+  if (safe >= 100_000_000) return `${oneDecimal(100_000_000)}\u4ebf`
+  const wan = oneDecimal(10_000)
+  // `Number("10000")` is 10000, `Number("5317.1")` is 5317.1 — trailing zeros
+  // are already stripped, so the parsed string is the rounded magnitude.
+  return Number(wan) >= 10_000 ? `${oneDecimal(100_000_000)}\u4ebf` : `${wan}\u4e07`
 }
 
 /**
