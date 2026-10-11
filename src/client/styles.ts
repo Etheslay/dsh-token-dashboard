@@ -86,19 +86,32 @@ export const PANEL_CSS = [
   // heatmap
   '.tdd-heat{display:flex;flex-direction:column;gap:6px;min-width:0}',
   '.tdd-heat-scroll{overflow-x:auto;padding-bottom:2px}',
-  '.tdd-heat-grid{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,var(--tdd-cell));',
-  'gap:var(--tdd-gap);width:max-content;--tdd-cell:16px;--tdd-gap:4px}',
-  '.tdd-cell{width:var(--tdd-cell);height:var(--tdd-cell);border-radius:4px;background:var(--tdd-ramp-0)}',
+  // The cells and the month labels are two grids that MUST share one column
+  // geometry, or the labels drift out from under their columns. Both therefore
+  // declare the same `grid-auto-columns`, the same gap, and the same ceiling.
+  // The earlier version let the label grid size its columns to their own text,
+  // which is why the months never lined up.
+  //
+  // Columns are fluid (`1fr`) and cells are square (`aspect-ratio: 1`), so a
+  // year always fits the panel instead of overflowing into a scrollbar. The
+  // 520px floor is where a cell stops being a readable target; below it the row
+  // scrolls rather than shrinking to nothing.
+  '.tdd-heat-grid,.tdd-heat-months{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);',
+  'gap:4px;width:100%;min-width:520px;max-width:1080px}',
+  '.tdd-heat-grid{grid-template-rows:repeat(7,minmax(0,1fr))}',
+  '.tdd-cell{width:100%;aspect-ratio:1;border-radius:3px;background:var(--tdd-ramp-0)}',
   ".tdd-cell[data-level='1']{background:var(--tdd-ramp-1)}",
   ".tdd-cell[data-level='2']{background:var(--tdd-ramp-2)}",
   ".tdd-cell[data-level='3']{background:var(--tdd-ramp-3)}",
   ".tdd-cell[data-level='4']{background:var(--tdd-ramp-4)}",
-  '.tdd-heat-months{display:grid;grid-auto-flow:column;gap:var(--tdd-gap);width:max-content;--tdd-gap:4px;',
-  'color:var(--dsw-alias-label-secondary);font-size:11px;white-space:nowrap}',
+  '.tdd-heat-months{color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1}',
+  // A month name is wider than its column, so it spills right across the empty
+  // columns that follow — which is exactly where it should sit.
+  '.tdd-heat-month{white-space:nowrap;overflow:visible}',
   '.tdd-heat-foot{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;',
   'color:var(--dsw-alias-label-secondary);font-size:11px;min-height:18px}',
   '.tdd-heat-legend{display:inline-flex;align-items:center;gap:5px}',
-  '.tdd-heat-legend .tdd-cell{--tdd-cell:11px}',
+  '.tdd-heat-legend .tdd-cell{width:11px;flex:none}',
 
   // insights
   '.tdd-cols{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 44px}',

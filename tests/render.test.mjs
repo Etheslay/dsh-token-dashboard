@@ -46,8 +46,11 @@ await build({
   external: ['react', 'react-dom'],
   logLevel: 'silent',
 })
-const { UsageView, makeTranslate, buildHeatmap, labelMonths } = await import(pathToFileURL(panelBundle).href)
+const { UsageView, makeTranslate, buildHeatmap } = await import(pathToFileURL(panelBundle).href)
 const { en, zh } = await import('../src/client/locales.ts')
+// The stylesheet is plain TS, so Node can load it directly for the CSS
+// invariants below.
+const { PANEL_CSS } = await import('../src/client/styles.ts')
 
 let failures = 0
 const check = (name, fn) => {
@@ -171,7 +174,10 @@ const snapshot = {
     { date: dayKey(1), turns: 2, responses: 11, ...buckets(20_000, 9_000) },
     { date: dayKey(0), turns: 4, responses: 30, ...buckets(120_000, 44_000) },
   ],
-  heatmap: { from: '2025-11-01', to: dayKey(0) },
+  // A full 12 months: 2025-11-01 is a Saturday, so the grid pads back to Sunday
+  // 2025-10-26, and 2026-10-26 pads forward to Saturday 2026-10-31. 371 days =
+  // 53 whole weeks, which is what a real year looks like.
+  heatmap: { from: '2025-11-01', to: '2026-10-26' },
   models: [
     { provider: 'deepseek-official', model: 'deepseek-flash', responses: 2400, ...buckets(2_075_755, 2_435_802, 563_335_040) },
     { provider: 'deepseek-official', model: 'deepseek-v4-pro', responses: 101, ...buckets(40_000, 90_000) },
@@ -289,7 +295,7 @@ check('the ramp spreads across all five steps', () => {
 })
 
 check('month labels appear only where the month changes', () => {
-  const labelled = labelMonths(buildHeatmap(snapshot, 'daily'), 'en-GB')
+  const labelled = buildHeatmap(snapshot, 'daily', 'en-GB')
   const named = labelled.months.filter((month) => month.label.length > 0)
   assert.ok(named.length > 0, 'at least one month must be named')
   assert.ok(named.length <= 13, 'a year has at most 13 labelled columns')
@@ -298,6 +304,80 @@ check('month labels appear only where the month changes', () => {
     const previous = labelled.months[index - 1]
     assert.ok(current.label === '' || current.label !== previous.label, 'a month must not be labelled twice in a row')
   }
+})
+
+check('the Sunday padding before the window is not labelled', () => {
+  // 2025-11-01 is a Saturday, so the grid pads back to Sunday 2025-10-26. That
+  // padding is October, and labelling it printed a bare "10月" ahead of the real
+  // "11月" — the second thing the reference panel got right and this did not.
+  const grid = buildHeatmap(snapshot, 'daily', 'en-GB')
+  assert.equal(grid.cells[0].date, '2025-10-26', 'the first column is padded to its Sunday')
+  assert.equal(grid.months[0].label, 'Nov', 'the first column is labelled for the window, not the padding')
+  const named = grid.months.filter((month) => month.label.length > 0).map((month) => month.label)
+  assert.equal(named.length, 12, `a 12-month window must name 12 months, got: ${named.join(', ')}`)
+  assert.equal(new Set(named).size, named.length, 'no month may be labelled twice')
+})
+
+/** The declaration body of one rule, anchored so a shared selector cannot match. */
+const ruleBody = (css, selector) => {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const match = new RegExp(`(?:^|})${escaped}\\{([^}]*)\\}`).exec(css)
+  assert.ok(match, `no rule found for ${selector}`)
+  return match[1]
+}
+
+/** Every rule in the stylesheet whose selector mentions a token. */
+const rulesMentioning = (css, token) =>
+  [...css.matchAll(/[^{}]*\{[^}]*\}/g)].map((match) => match[0]).filter((rule) => rule.includes(token))
+
+check('the label row and the cell grid declare identical column geometry', () => {
+  // This is the invariant month alignment rests on. The two rows are separate
+  // grids, so a label can only sit under its column if BOTH declare the same
+  // track sizing, gap and width bounds. The first version let the label grid
+  // size its columns to their own text and the months drifted out from under
+  // the cells; a CSS edit can reintroduce exactly that.
+  const shared = ruleBody(PANEL_CSS, '.tdd-heat-grid,.tdd-heat-months')
+  for (const property of ['grid-auto-flow', 'grid-auto-columns', 'gap', 'width', 'min-width', 'max-width']) {
+    assert.ok(shared.includes(`${property}:`), `the shared rule must set ${property}`)
+  }
+  assert.ok(shared.includes('grid-auto-columns:minmax(0,1fr)'), 'columns must be fluid, not content-sized')
+  assert.ok(shared.includes('width:100%'), 'the grid must fill the panel rather than demand a scrollbar')
+
+  const labels = ruleBody(PANEL_CSS, '.tdd-heat-months')
+  assert.ok(!labels.includes('grid-auto-columns'), 'the label row must not override the shared track sizing')
+  assert.ok(!labels.includes('width:'), 'the label row must not override the shared width')
+  // Square cells keep rows and columns in step as the panel resizes.
+  assert.ok(ruleBody(PANEL_CSS, '.tdd-cell').includes('aspect-ratio:1'), 'cells must stay square')
+})
+
+check('nothing about the heatmap sizes itself to its content', () => {
+  // `width: max-content` on either row is exactly what produced the scrollbar:
+  // 53 columns of fixed 16px cells are wider than a narrow settings panel.
+  // The insights rows legitimately use `max-content` for their value column, so
+  // the check is scoped to the heatmap's own rules.
+  const heatmapRules = rulesMentioning(PANEL_CSS, 'tdd-heat')
+  assert.ok(heatmapRules.length > 0, 'the heatmap rules must exist')
+  for (const rule of heatmapRules) {
+    assert.ok(!rule.includes('max-content'), `the heatmap must not size to content: ${rule.slice(0, 80)}`)
+  }
+  assert.ok(/max-width:\d+px/.test(PANEL_CSS), 'the grid needs a width ceiling so cells do not balloon')
+  assert.ok(/min-width:\d+px/.test(PANEL_CSS), 'the grid needs a width floor before it scrolls')
+})
+
+check('one label slot per column, and the first names the window month', () => {
+  const grid = buildHeatmap(snapshot, 'daily', 'en-GB')
+  assert.equal(grid.months.length, grid.cells.length / 7, 'one label slot per column')
+  const columns = grid.cells.length / 7
+  assert.ok(columns >= 52 && columns <= 54, `a year is 52-53 weeks, got ${columns}`)
+  grid.months.forEach((month, index) => {
+    if (month.label === '') return
+    // The label is rendered at column `index`'s own left edge, so the column
+    // must actually contain the day the label is named for.
+    const columnStart = grid.cells[index * 7].date
+    const columnEnd = grid.cells[index * 7 + 6].date
+    const anchor = columnStart < snapshot.heatmap.from ? snapshot.heatmap.from : columnStart
+    assert.ok(anchor >= columnStart && anchor <= columnEnd, `column ${index} must contain its anchor ${anchor}`)
+  })
 })
 
 check('the footer reports insights and the most-used skills', () => {

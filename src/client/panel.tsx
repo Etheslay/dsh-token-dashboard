@@ -107,7 +107,7 @@ export interface HeatGrid {
 }
 
 /**
- * Build the heatmap's cell grid.
+ * Build the heatmap's cell grid, month labels included.
  *
  * Both ends are padded to whole weeks: the first column back to its Sunday and
  * the last forward to its Saturday. The grid fills column-major over exactly
@@ -115,16 +115,23 @@ export interface HeatGrid {
  * CSS, but it makes the grid's shape depend on which weekday "today" happens to
  * be. Cumulative padding carries the final total forward so the series stays
  * monotonic.
+ *
+ * A column is labelled from its first day that is INSIDE the window, not from
+ * its own first day. The Sunday padding belongs to the previous month, so
+ * anchoring on it would print a leading month the window does not actually
+ * cover — a bare `10月` ahead of the real `11月`.
  * @param snapshot - The snapshot carrying the day buckets and window.
  * @param mode - How each cell aggregates.
+ * @param locale - Locale for the month names.
  * @returns The cells plus the per-column month labels.
  */
-export function buildHeatmap(snapshot: UsageSnapshot, mode: HeatMode): HeatGrid {
+export function buildHeatmap(snapshot: UsageSnapshot, mode: HeatMode, locale?: string): HeatGrid {
   const byDate = new Map<string, DayUsage>()
   for (const day of snapshot.days) byDate.set(day.date, day)
 
-  const from = shiftDay(snapshot.heatmap.from, -weekdayOf(snapshot.heatmap.from))
+  const windowFrom = snapshot.heatmap.from
   const to = snapshot.heatmap.to
+  const from = shiftDay(windowFrom, -weekdayOf(windowFrom))
 
   const weekly = new Map<string, number>()
   if (mode === 'weekly') {
@@ -158,30 +165,24 @@ export function buildHeatmap(snapshot: UsageSnapshot, mode: HeatMode): HeatGrid 
   }))
 
   const months: Array<{ key: string; label: string }> = []
+  let previousMonth: string | undefined
   for (let index = 0; index < cells.length; index += 7) {
-    months.push({ key: cells[index]!.date, label: '' })
+    const columnStart = cells[index]!.date
+    // The first day of this column that the window actually covers.
+    const anchor = columnStart < windowFrom ? windowFrom : columnStart
+    if (anchor > to) {
+      months.push({ key: columnStart, label: '' })
+      continue
+    }
+    const month = anchor.slice(0, 7)
+    if (month === previousMonth) {
+      months.push({ key: columnStart, label: '' })
+      continue
+    }
+    previousMonth = month
+    months.push({ key: columnStart, label: dayLabel(anchor, locale, { month: 'short' }) })
   }
   return { cells, months }
-}
-
-/**
- * Label the month columns, emitting a name only where the month changes.
- *
- * Codex's heatmap prints the month under the first column that belongs to it,
- * which is what keeps a year readable without an axis.
- * @param grid - The grid from {@link buildHeatmap}.
- * @param locale - Locale for the month name.
- * @returns The grid with labels filled in.
- */
-export function labelMonths(grid: HeatGrid, locale?: string): HeatGrid {
-  let previousMonth: string | undefined
-  const months = grid.months.map((month) => {
-    const current = month.key.slice(0, 7)
-    const label = current === previousMonth ? '' : dayLabel(month.key, locale, { month: 'short' })
-    previousMonth = current
-    return { key: month.key, label }
-  })
-  return { ...grid, months }
 }
 
 /** Props for {@link UsageView}, the pure presentation component. */
@@ -361,7 +362,7 @@ function Activity({
   hovered: string | undefined
   setHovered: (key: string | undefined) => void
 }): ReactNode {
-  const grid = useMemo(() => labelMonths(buildHeatmap(snapshot, mode), locale), [snapshot, mode, locale])
+  const grid = useMemo(() => buildHeatmap(snapshot, mode, locale), [snapshot, mode, locale])
   const active = grid.cells.find((cell) => cell.key === hovered)
 
   return createElement(
@@ -425,7 +426,9 @@ function Activity({
         createElement(
           'div',
           { className: 'tdd-heat-months', 'aria-hidden': 'true' },
-          ...grid.months.map((month) => createElement('span', { key: month.key }, month.label)),
+          ...grid.months.map((month) =>
+            createElement('span', { className: 'tdd-heat-month', key: month.key }, month.label),
+          ),
         ),
       ),
       createElement(

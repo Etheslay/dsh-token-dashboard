@@ -9,6 +9,7 @@
 import fs from 'node:fs'
 import zlib from 'node:zlib'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const ATTACH = 'C:/Users/wu/.dsh/attachments/v1/objects'
 
@@ -95,18 +96,28 @@ export function histogram(img, box) {
   return [...counts.entries()].sort((a, b) => b[1] - a[1])
 }
 
-const targets = process.argv.slice(2)
-if (targets.length === 0) {
-  console.log('usage: node tools/sample-shot.mjs <png> [x y w h]')
-} else {
-  const [file, ...rest] = targets
-  const img = decodePng(file)
-  console.log(`${path.basename(file)}: ${img.width}x${img.height}, ${img.channels} channel(s)`)
-  const box =
-    rest.length === 4
-      ? { x: Number(rest[0]), y: Number(rest[1]), w: Number(rest[2]), h: Number(rest[3]) }
-      : { x: 0, y: 0, w: img.width, h: img.height }
-  for (const [colour, count] of histogram(img, box).slice(0, 16)) {
-    console.log(`  ${colour}  ${String(count).padStart(7)}`)
+/** The most common colour in the whole image — in practice, the page background. */
+export function backgroundColor(img) {
+  const ranked = histogram(img, { x: 0, y: 0, w: img.width, h: img.height })
+  return ranked.length === 0 ? '#000000' : ranked[0][0]
+}
+
+// Only run the CLI when this file is the entry point. Importing it for
+// `decodePng` must not print a histogram.
+if (process.argv[1] !== undefined && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const targets = process.argv.slice(2)
+  if (targets.length === 0) {
+    console.log('usage: node tools/sample-shot.mjs <png> [x y w h]')
+  } else {
+    const [file, ...rest] = targets
+    const img = decodePng(file)
+    console.log(`${path.basename(file)}: ${img.width}x${img.height}, ${img.channels} channel(s)`)
+    const box =
+      rest.length === 4
+        ? { x: Number(rest[0]), y: Number(rest[1]), w: Number(rest[2]), h: Number(rest[3]) }
+        : { x: 0, y: 0, w: img.width, h: img.height }
+    for (const [colour, count] of histogram(img, box).slice(0, 16)) {
+      console.log(`  ${colour}  ${String(count).padStart(7)}`)
+    }
   }
 }
