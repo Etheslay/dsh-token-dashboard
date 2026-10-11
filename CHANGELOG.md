@@ -3,6 +3,21 @@
 Notable changes to `@etheslay/dsh-token-dashboard`. The version numbers are the
 published npm versions.
 
+## 0.1.3
+
+Documentation only — `src/` is untouched.
+
+- The npm downloads badge is gone. npm's download API has no data for a package
+  published the same day, so `npm/dm` rendered **package not found or too new**
+  in red wherever the badges appear. Worth adding back once npm has aggregated a
+  full day.
+- The licence badge reads npm rather than GitHub: `npm/l` takes the `license`
+  field straight from `package.json`, while `github/license` depends on GitHub's
+  licence detection — which reported `NOASSERTION` while the MIT text shared a
+  file with the Codex notice, and left a cached **invalid** badge behind after
+  the two were split. Badge images are cached per URL by GitHub's image proxy as
+  well as by the browser, so the stale picture outlived the fix.
+
 ## 0.1.2
 
 Documentation only — no functional change, `src/` is untouched.

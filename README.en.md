@@ -4,8 +4,7 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@etheslay/dsh-token-dashboard"><img alt="npm version" src="https://img.shields.io/npm/v/@etheslay/dsh-token-dashboard?label=npm&color=cb3837"></a>
-  <a href="https://www.npmjs.com/package/@etheslay/dsh-token-dashboard"><img alt="npm downloads" src="https://img.shields.io/npm/dm/@etheslay/dsh-token-dashboard?label=downloads&color=brightgreen"></a>
-  <a href="https://github.com/Etheslay/dsh-token-dashboard/blob/main/LICENSE"><img alt="license" src="https://img.shields.io/github/license/Etheslay/dsh-token-dashboard?color=orange"></a>
+  <a href="https://github.com/Etheslay/dsh-token-dashboard/blob/main/LICENSE"><img alt="license" src="https://img.shields.io/npm/l/@etheslay/dsh-token-dashboard?color=orange"></a>
   <img alt="platform" src="https://img.shields.io/badge/platform-DeepSeek%20Harness%20Web-8A2BE2">
 </p>
 
