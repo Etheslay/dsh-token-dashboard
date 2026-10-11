@@ -131,7 +131,7 @@ Copying Codex literally would have been wrong in these four places:
 ## Install
 
 ```sh
-dsh plugin add dsh-token-dashboard
+dsh plugin add @etheslay/dsh-token-dashboard
 ```
 
 Then open **Settings → Usage**.
@@ -151,7 +151,7 @@ The package ships two halves, as `dsh.client` declares:
 The route answers with a `UsageSnapshot`, and that shape is exported from the package root, so a script, a test harness, or a second panel can type the payload instead of restating it:
 
 ```ts
-import type { UsageSnapshot, StatsQuery } from 'dsh-token-dashboard'
+import type { UsageSnapshot, StatsQuery } from '@etheslay/dsh-token-dashboard'
 ```
 
 `lib/types/host/index.d.ts` is emitted from `src/host/index.ts` — the same module `lib/index.js` bundles — and the build fails outright rather than publishing declarations that do not match the code. The browser half's exports (`buildHeatmap`, `heatCellDescription`, …) resolve from the `./client` subpath.
@@ -204,7 +204,7 @@ npm run refresh:profile  # repack + reinstall into the DSH profile the app loads
 
 **Editing `src/` does not change what DSH runs.** A profile installs this package
 from a packed tarball, so the app loads its own copy under
-`<profile>/node_modules/dsh-token-dashboard/`. Until that copy is refreshed, a fix
+`<profile>/node_modules/@etheslay/dsh-token-dashboard/`. Until that copy is refreshed, a fix
 is invisible — which is exactly how a repaired double scrollbar kept showing up in
 the panel. `npm run refresh:profile` repacks and reinstalls it; reload the page
 afterwards. (A change to the Host half also needs a DSH restart, since a replaced

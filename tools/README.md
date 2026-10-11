@@ -27,12 +27,15 @@ takes `DSH_PROFILE_DIR`, because those point outside the session store.
 ## Editing source is not the same as changing the app
 
 A profile installs this package from a packed tarball
-(`"dsh-token-dashboard": "file:./dsh-token-dashboard-0.1.0.tgz"`), so the app
-loads `<profile>/node_modules/dsh-token-dashboard/` — its own copy, not this
-checkout. A source fix stays invisible until the tarball is repacked and
-re-extracted. That is exactly how a fixed double scrollbar kept showing up in the
-panel: `src/client/styles.ts` no longer had the offending rule, and the installed
-`lib/client.js` still did.
+(`"@etheslay/dsh-token-dashboard": "file:./etheslay-dsh-token-dashboard-0.1.0.tgz"`),
+so the app loads `<profile>/node_modules/@etheslay/dsh-token-dashboard/` — its own
+copy, not this checkout. A source fix stays invisible until the tarball is repacked
+and re-extracted. That is exactly how a fixed double scrollbar kept showing up in
+the panel: `src/client/styles.ts` no longer had the offending rule, and the
+installed `lib/client.js` still did.
+
+(npm names a scoped package's tarball after the scope and name with the `@` and
+`/` flattened, which is why the file is `etheslay-dsh-token-dashboard-*.tgz`.)
 
 ```sh
 npm run refresh:profile              # repack + reinstall into the desktop profile
@@ -46,7 +49,7 @@ To skip repacking altogether, point the profile at the checkout instead of the
 tarball — `lib/` is then live:
 
 ```json
-"dsh-token-dashboard": "file:D:/dsh-token-dashboard"
+"@etheslay/dsh-token-dashboard": "file:D:/dsh-token-dashboard"
 ```
 
 `refresh-profile.mjs` refuses that setup on purpose (the spec has to name a
@@ -90,7 +93,7 @@ would be in the harness — this is the regression gate for exactly that.
 Measured against the built artifact:
 
 ```sh
-node tools/verify-built-panel.mjs ~/.dsh/profiles/desktop/node_modules/dsh-token-dashboard/lib/client.js shipped.html
+node tools/verify-built-panel.mjs ~/.dsh/profiles/desktop/node_modules/@etheslay/dsh-token-dashboard/lib/client.js shipped.html
 node tools/check-panel-layout.mjs --html shipped.html
 ```
 

@@ -1,8 +1,9 @@
 /**
  * Panel copy in the two languages the harness ships.
  *
- * Namespace is `dsh-token-dashboard`, matching the package name so the section
- * registration can pass one string for both `locale` and `inject`.
+ * Namespace is `dsh-token-dashboard` — the plugin's unscoped name, which is not
+ * the npm package name (`@etheslay/dsh-token-dashboard`) — so the section
+ * registration can pass one string for both `locale` and the dictionary.
  *
  * @module dsh-token-dashboard/client/locales
  */

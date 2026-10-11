@@ -32,7 +32,7 @@ if (!fs.existsSync(sessionsRoot)) {
 
 // --- 1. the loader must expose a Cordis plugin ------------------------------
 const host = await import(pathToFileURL(path.join(root, 'lib/index.js')).href)
-assert.equal(host.name, 'dsh-token-dashboard', 'host plugin name must match the package name')
+assert.equal(host.name, 'dsh-token-dashboard', 'the host plugin keeps its unscoped name, not the npm scope')
 assert.equal(typeof host.apply, 'function', 'host plugin must export apply()')
 
 // --- 2. the route must answer, through the real apply() ---------------------

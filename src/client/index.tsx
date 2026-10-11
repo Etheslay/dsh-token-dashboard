@@ -25,7 +25,14 @@ import { en, zh } from './locales.ts'
 export { UsageView, buildHeatmap, heatCellAnchor, heatCellDescription } from './panel.tsx'
 export type { UsageViewProps, HeatGrid, HeatBlock, HeatCell, HeatMode, Translate } from './panel.tsx'
 
-/** Locale namespace, deliberately equal to the package name. */
+/**
+ * Locale namespace, and the client plugin's own name.
+ *
+ * The unscoped short name — the npm package is `@etheslay/dsh-token-dashboard`,
+ * but a plugin's identity is not its scope (dsh-pet's client half names itself
+ * `pet`). One string serves both roles so the section registration can pass the
+ * same value for `locale` and for the dictionary namespace.
+ */
 export const NS = 'dsh-token-dashboard'
 
 /** Section id this page is registered under. */

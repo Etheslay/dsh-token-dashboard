@@ -9,14 +9,19 @@
 # 【工作原理】
 #   - insert：往配置树里添加新的插件行（entry）
 #   - 每个 entry 有 id（行标识，patch 覆盖时按它定位）和 name（插件模块）
-#   - name: 'dsh-token-dashboard' 解析到包入口 lib/index.js（宿主半侧）
+#   - name 是**包名**（npm 模块名），解析到包入口 lib/index.js（宿主半侧）。
+#     本包发布在 @etheslay scope 下，所以 name 必须带 scope，否则解析不到。
 #   - package.json 声明了 dsh.client，DSH 的模块系统因此同时把这个包扫描为
-#     "浏览器插件"，向页面提供 /plugins/dsh-token-dashboard/client.js
+#     "浏览器插件"，向页面提供它的 client.js 入口
 #
 # 【两处硬性约束，改动前请先读】
-#   1. id 必须全局唯一，且与包名一致。商城上架预检按 id 比对 entryIds，
-#      裸名（如 token-dashboard）会与其它插件的行标识冲突，整份提交会被判为
-#      缺少 entry ID。
+#   1. id 必须全局唯一。商城上架预检按 id 比对 entryIds，裸名太泛（如
+#      token-dashboard）会与其它插件的行标识冲突，整份提交会被判为缺少 entry ID。
+#      id **不等于**包名：DSH 自带的 @deepseek-ai/dsh-client-ui-chat 用的是
+#      `ui-chat`，@michengai/dsh-codex-ui 用的是 `codex-ui`，@michengai/dsh-automation
+#      用的是 `dsh-automation`。这里沿用本插件一直以来的 `dsh-token-dashboard`：
+#      它已足够独特（npm 上同名的那个包用的是 `token-dashboard`，不冲突），
+#      并且宿主半侧导出的 `name` 本来就取这个短名。
 #   2. "id: 值" 这一行绝不能写行尾注释。预检用正则抓该行的值并要求其后直接
 #      换行，行尾注释会让它抓不到 entry ID。
 #
@@ -24,4 +29,4 @@
 
 - insert:
     - id: dsh-token-dashboard
-      name: 'dsh-token-dashboard'
+      name: '@etheslay/dsh-token-dashboard'

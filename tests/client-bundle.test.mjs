@@ -15,6 +15,11 @@ import { fileURLToPath } from 'node:url'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const bundlePath = path.join(root, 'lib/client.js')
 const source = fs.readFileSync(bundlePath, 'utf8')
+// The loader id the shell looks the bundle up by IS the npm package name, so it
+// is read from package.json rather than restated: the package is scoped
+// (`@etheslay/dsh-token-dashboard`) and a rename must not be able to leave this
+// assertion checking the old one.
+const packageName = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).name
 
 /** Minimal React stand-in: enough for `createElement` and the hooks used. */
 const React = {
@@ -85,7 +90,7 @@ vm.createContext(sandbox)
 vm.runInContext(source, sandbox, { filename: 'lib/client.js' })
 
 assert.ok(registration, 'bundle must call window.__ModuleLoader__.load')
-assert.equal(registration.id, 'dsh-token-dashboard', 'bundle id must be the npm package name')
+assert.equal(registration.id, packageName, 'the bundle id must be the npm package name, scope included')
 assert.equal(typeof registration.factory, 'function', 'loader entry must expose a factory')
 
 const plugin = registration.factory((id) => {
@@ -94,7 +99,10 @@ const plugin = registration.factory((id) => {
   return moduleTable[id]
 })
 
-assert.equal(plugin.name, 'dsh-token-dashboard', 'plugin name must match the package name')
+// The plugin's OWN name is not the package name: a scope is packaging, not
+// identity (dsh-pet's client half names itself `pet`). This package keeps the
+// unscoped short name.
+assert.equal(plugin.name, 'dsh-token-dashboard', 'the plugin keeps its unscoped name')
 assert.deepEqual([...plugin.inject], ['slots', 'locale'], 'plugin must declare its required services')
 assert.equal(typeof plugin.apply, 'function', 'plugin must export apply()')
 
@@ -114,7 +122,7 @@ const ctx = {
   },
   locale: {
     register: (namespace, dicts) => {
-      assert.equal(namespace, 'dsh-token-dashboard')
+      assert.equal(namespace, 'dsh-token-dashboard', 'the dictionary namespace is the unscoped plugin name')
       assert.ok(dicts.zh && dicts.en, 'both dictionaries must be registered')
       return () => {}
     },

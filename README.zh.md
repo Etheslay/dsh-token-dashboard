@@ -98,7 +98,7 @@ width: min(100%, calc(var(--tdd-heat-columns) * (var(--tdd-heat-cell) + var(--td
 ## 安装
 
 ```sh
-dsh plugin add dsh-token-dashboard
+dsh plugin add @etheslay/dsh-token-dashboard
 ```
 
 然后打开 **设置 → 用量**。
@@ -118,7 +118,7 @@ dsh plugin add dsh-token-dashboard
 这条路由返回的是 `UsageSnapshot`，而这个形状从包根导出 —— 脚本、测试台、或者第二个面板都可以直接引用它，不必自己再抄一遍：
 
 ```ts
-import type { UsageSnapshot, StatsQuery } from 'dsh-token-dashboard'
+import type { UsageSnapshot, StatsQuery } from '@etheslay/dsh-token-dashboard'
 ```
 
 `lib/types/host/index.d.ts` 由 `src/host/index.ts` 生成，也就是 `lib/index.js` 打包的同一个模块；声明与代码对不上时构建会直接失败，而不是把不一致的声明发出去。浏览器半侧的导出（`buildHeatmap`、`heatCellDescription` 等）走 `./client` 子路径。
@@ -166,7 +166,7 @@ npm run refresh:profile  # 重新打包并装进 app 实际加载的 profile
 ```
 
 **改 `src/` 不等于改了 app 跑的东西。** profile 是用打好包的 tgz 安装本插件的，
-所以 app 加载的是它自己那份 `<profile>/node_modules/dsh-token-dashboard/`。
+所以 app 加载的是它自己那份 `<profile>/node_modules/@etheslay/dsh-token-dashboard/`。
 在那份被刷新之前，修复是不可见的 —— 这正是"滚动条明明修好了却还在"的原因。
 `npm run refresh:profile` 负责重新打包并覆盖安装，之后刷新页面即可。
 （改动宿主半侧还需要重启 DSH，因为被替换的 ES 模块会缓存在 Node 进程里。）

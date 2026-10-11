@@ -51,7 +51,17 @@ export type {
   WorkspaceUsage,
 } from '../shared/types.ts'
 
-/** Cordis plugin name; must match the Loader entry id in `cordis.patch.yml`. */
+/**
+ * Cordis plugin name.
+ *
+ * The UNSCOPED short name, not the npm package name: the package publishes as
+ * `@etheslay/dsh-token-dashboard`, but DSH's own plugins name themselves this
+ * way (`@deepseek-ai/dsh-session-stats` → `session-stats`,
+ * `@michengai/dsh-automation` → `dsh-automation`, `dsh-better-sidebar` →
+ * `dsh-better-sidebar`). The Loader entry in `cordis.patch.yml` has its own
+ * `id`, which is deliberately the same string, but the two are separate
+ * identities — see the note there.
+ */
 export const name = 'dsh-token-dashboard'
 
 /** Route prefix this plugin owns. No other plugin may register it. */

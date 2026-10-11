@@ -1,5 +1,5 @@
 {
-  "name": "dsh-token-dashboard",
+  "name": "@etheslay/dsh-token-dashboard",
   "version": "0.1.0",
   "description": "Token-usage dashboard for DeepSeek Harness — a Codex-style usage panel inside Settings. · DSH 用量统计面板：在设置里查看 token 消耗、缓存命中、上下文占用与历史趋势。",
   "keywords": [
@@ -47,7 +47,8 @@
     "cordis.patch.yml",
     "LICENSE",
     "README.md",
-    "README.zh.md"
+    "README.zh.md",
+    "docs/panel-dark.png"
   ],
   "dsh": {
     "bundle": {
