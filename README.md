@@ -2,7 +2,7 @@
 
 [English](README.en.md) · [更新日志](https://github.com/Etheslay/dsh-token-dashboard/blob/main/CHANGELOG.md) · [MIT](https://github.com/Etheslay/dsh-token-dashboard/blob/main/LICENSE)
 
-<p align="center">
+<p align="">
   <a href="https://www.npmjs.com/package/@etheslay/dsh-token-dashboard"><img alt="npm version" src="https://img.shields.io/npm/v/@etheslay/dsh-token-dashboard?label=npm&color=cb3837"></a>
   <a href="https://github.com/Etheslay/dsh-token-dashboard/blob/main/LICENSE"><img alt="license" src="https://img.shields.io/npm/l/@etheslay/dsh-token-dashboard?color=orange"></a>
   <img alt="platform" src="https://img.shields.io/badge/platform-DeepSeek%20Harness%20Web-8A2BE2">
